@@ -1,0 +1,24 @@
+# Environment
+.env
+.env.*
+
+# Go
+bin/
+*.exe
+*.out
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Docker volumes
+mysql_data/
+
+# Coverage
+coverage.out

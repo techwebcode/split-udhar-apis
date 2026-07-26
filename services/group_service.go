@@ -106,6 +106,11 @@ func (s *GroupService) AddMember(groupID uint, requesterMobile string, memberReq
 		return err
 	}
 
+	// Only the group owner can add members
+	if group.CreatedBy != requesterMobile {
+		return errors.New("only the group owner can add members to this group")
+	}
+
 	// Check if already a member
 	for _, m := range group.Members {
 		if m.UserMobile == memberReq.Mobile {
@@ -216,15 +221,9 @@ func (s *GroupService) DeleteGroup(groupID uint, userMobile string) error {
 		return err
 	}
 
-	isMember := false
-	for _, m := range group.Members {
-		if m.UserMobile == userMobile {
-			isMember = true
-			break
-		}
-	}
-	if !isMember {
-		return errors.New("unauthorized to delete group")
+	// Only the group owner can delete group
+	if group.CreatedBy != userMobile {
+		return errors.New("only the group owner can delete this group")
 	}
 
 	return s.groupRepo.Delete(groupID)

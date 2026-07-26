@@ -57,6 +57,7 @@ type Transaction struct {
 	UpdatedBy string `gorm:"size:50" json:"updated_by"`
 
 	IsEdited       bool       `gorm:"default:false" json:"is_edited"`
+	IsDeleted      bool       `gorm:"default:false" json:"is_deleted"`
 	PreviousAmount float64    `gorm:"type:decimal(12,2)" json:"previous_amount,omitempty"`
 	PreviousNote   string     `gorm:"type:text" json:"previous_note,omitempty"`
 	EditedAt       *time.Time `json:"edited_at,omitempty"`

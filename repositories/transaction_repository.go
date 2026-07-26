@@ -102,15 +102,13 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 	}
 
 	for _, transaction := range transactions {
-
+		if transaction.IsDeleted {
+			continue
+		}
 		if transaction.FromMobile == mobile {
-
 			given += transaction.Amount
-
 		} else if transaction.ToMobile == mobile {
-
 			received += transaction.Amount
-
 		}
 	}
 

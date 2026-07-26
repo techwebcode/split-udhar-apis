@@ -9,8 +9,9 @@ type CreateTransactionRequest struct {
 }
 
 type UpdateTransactionRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-	Note   string  `json:"note"`
+	TransactionID uint    `json:"transaction_id"`
+	Amount        float64 `json:"amount" binding:"required,gt=0"`
+	Note          string  `json:"note"`
 }
 
 type TransactionHistoryResponse struct {

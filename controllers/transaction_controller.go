@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"split-udhar-apis/dto"
 	"split-udhar-apis/services"
@@ -22,8 +23,12 @@ func NewTransactionController(db *gorm.DB) *TransactionController {
 
 func (t *TransactionController) Update(c *gin.Context) {
 
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	idStr := c.Param("id")
+	log.Printf("[API UPDATE TRANSACTION] Received Param ID: '%s'", idStr)
+
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
+		log.Printf("[API UPDATE TRANSACTION ERROR] Failed to parse ID '%s': %v", idStr, err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "Invalid transaction id",
@@ -34,6 +39,7 @@ func (t *TransactionController) Update(c *gin.Context) {
 	var req dto.UpdateTransactionRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[API UPDATE TRANSACTION ERROR] Invalid JSON body for ID %d: %v", id, err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -41,19 +47,25 @@ func (t *TransactionController) Update(c *gin.Context) {
 		return
 	}
 
+	userMobile := c.GetString("mobile")
+	log.Printf("[API UPDATE TRANSACTION] Updating ID %d by User '%s' -> Amount: %.2f, Note: '%s'", id, userMobile, req.Amount, req.Note)
+
 	err = t.Service.UpdateTransaction(
 		uint(id),
-		c.GetString("mobile"),
+		userMobile,
 		req,
 	)
 
 	if err != nil {
+		log.Printf("[API UPDATE TRANSACTION ERROR] ID %d: %v", id, err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
 		return
 	}
+
+	log.Printf("[API UPDATE TRANSACTION SUCCESS] Successfully updated Transaction ID %d", id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -194,8 +206,12 @@ func (t *TransactionController) GetAll(c *gin.Context) {
 }
 
 func (t *TransactionController) GetEditLogs(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	idStr := c.Param("id")
+	log.Printf("[API EDIT LOGS] Requesting edit logs for Transaction ID: '%s'", idStr)
+
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
+		log.Printf("[API EDIT LOGS ERROR] Failed to parse ID '%s': %v", idStr, err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "Invalid transaction id",
@@ -205,12 +221,15 @@ func (t *TransactionController) GetEditLogs(c *gin.Context) {
 
 	logs, err := t.Service.GetTransactionEditHistory(uint(id))
 	if err != nil {
+		log.Printf("[API EDIT LOGS ERROR] Failed to fetch edit logs for ID %d: %v", id, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
 		return
 	}
+
+	log.Printf("[API EDIT LOGS SUCCESS] Found %d logs for Transaction ID %d", len(logs), id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

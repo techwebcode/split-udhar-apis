@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"time"
 
@@ -78,10 +79,19 @@ func (s *TransactionService) UpdateTransaction(
 		return err
 	}
 
-	// Only participants can update
-	if transaction.FromMobile != userMobile &&
-		transaction.ToMobile != userMobile {
-		return errors.New("transaction not found")
+	// Only transaction creator/owner can update
+	currentUser, _ := s.userRepo.GetByMobile(userMobile)
+	userEmail := ""
+	if currentUser != nil {
+		userEmail = currentUser.Email
+	}
+
+	isOwner := (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) ||
+		(transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+		(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+
+	if !isOwner {
+		return errors.New("only the transaction creator can edit this transaction")
 	}
 
 	oldAmount := transaction.Amount
@@ -104,7 +114,11 @@ func (s *TransactionService) UpdateTransaction(
 			EditedBy:      userMobile,
 			EditedAt:      now,
 		}
-		_ = s.transactionRepo.CreateEditLog(&editLog)
+		if err := s.transactionRepo.CreateEditLog(&editLog); err != nil {
+			log.Printf("[EDIT LOG CREATION ERROR] Transaction ID %d: %v", transaction.ID, err)
+		} else {
+			log.Printf("[EDIT LOG CREATED] Log ID %d created for Transaction ID %d", editLog.ID, transaction.ID)
+		}
 	}
 
 	transaction.Amount = req.Amount
@@ -143,14 +157,43 @@ func (s *TransactionService) DeleteTransaction(
 		return err
 	}
 
-	// Only owner can delete
-	if transaction.FromMobile != userMobile &&
-		transaction.ToMobile != userMobile {
-
-		return errors.New("transaction not found")
+	// Only transaction creator/owner can delete
+	currentUser, _ := s.userRepo.GetByMobile(userMobile)
+	userEmail := ""
+	if currentUser != nil {
+		userEmail = currentUser.Email
 	}
 
-	return s.transactionRepo.Delete(id)
+	isOwner := (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) ||
+		(transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+		(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+
+	if !isOwner {
+		return errors.New("only the transaction creator can delete this transaction")
+	}
+
+	now := time.Now()
+	// Record deletion audit entry in TransactionEditLog
+	editLog := models.TransactionEditLog{
+		TransactionID: transaction.ID,
+		OldAmount:     transaction.Amount,
+		NewAmount:     0,
+		OldNote:       transaction.Note,
+		NewNote:       "[DELETED] Transaction deleted",
+		EditedBy:      userMobile,
+		EditedAt:      now,
+	}
+	if err := s.transactionRepo.CreateEditLog(&editLog); err != nil {
+		log.Printf("[DELETE LOG ERROR] Transaction ID %d: %v", id, err)
+	}
+
+	// Mark as deleted on transaction record to maintain full history
+	transaction.IsDeleted = true
+	transaction.IsEdited = true
+	transaction.UpdatedBy = userMobile
+	transaction.EditedAt = &now
+
+	return s.transactionRepo.Update(transaction)
 }
 
 type DashboardResponse struct {
@@ -213,16 +256,19 @@ func (s *TransactionService) GetTransactionSummary(
 		}
 
 		if _, exists := summaryMap[contactMobile]; !exists {
+			displayName := transaction.ContactName
+			regUser, err := s.userRepo.GetByMobile(contactMobile)
+			if err == nil && regUser != nil && regUser.FullName != "" {
+				displayName = regUser.FullName
+			} else if displayName == "" {
+				displayName = contactMobile
+			}
 
 			summaryMap[contactMobile] = &dto.TransactionSummaryResponse{
-
-				Mobile: contactMobile,
-
-				ContactName: transaction.ContactName,
-
+				Mobile:              contactMobile,
+				ContactName:         displayName,
 				LastTransactionDate: transaction.TransactionDate,
-
-				Transactions: make([]models.Transaction, 0),
+				Transactions:        make([]models.Transaction, 0),
 			}
 		}
 
@@ -231,16 +277,14 @@ func (s *TransactionService) GetTransactionSummary(
 		item.TotalTransactions++
 		item.Transactions = append(item.Transactions, transaction)
 
-		if transaction.FromMobile == userMobile {
-
-			// User gave money
-			item.Balance += transaction.Amount
-
-		} else {
-
-			// User received money
-			item.Balance -= transaction.Amount
-
+		if !transaction.IsDeleted {
+			if transaction.FromMobile == userMobile {
+				// User gave money
+				item.Balance += transaction.Amount
+			} else {
+				// User received money
+				item.Balance -= transaction.Amount
+			}
 		}
 	}
 
@@ -276,15 +320,13 @@ func (s *TransactionService) GetTransactionHistory(
 	}
 
 	for _, transaction := range transactions {
-
+		if transaction.IsDeleted {
+			continue
+		}
 		if transaction.FromMobile == userMobile {
-
 			response.TotalGiven += transaction.Amount
-
 		} else {
-
 			response.TotalReceived += transaction.Amount
-
 		}
 	}
 

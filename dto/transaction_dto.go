@@ -11,6 +11,7 @@ type CreateTransactionRequest struct {
 type UpdateTransactionRequest struct {
 	TransactionID uint    `json:"transaction_id"`
 	Amount        float64 `json:"amount" binding:"required,gt=0"`
+	Type          string  `json:"type,omitempty"`
 	Note          string  `json:"note"`
 }
 

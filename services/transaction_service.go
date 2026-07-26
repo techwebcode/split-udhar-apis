@@ -96,8 +96,25 @@ func (s *TransactionService) UpdateTransaction(
 
 	oldAmount := transaction.Amount
 	oldNote := transaction.Note
+	oldType := string(transaction.Type)
+	newType := req.Type
 
-	if oldAmount != req.Amount || oldNote != req.Note {
+	typeChanged := newType != "" && (newType == "give" || newType == "receive") && newType != oldType
+
+	if typeChanged {
+		transaction.Type = models.TransactionType(newType)
+		if newType == string(models.TransactionReceive) && transaction.FromMobile == userMobile {
+			contactMobile := transaction.ToMobile
+			transaction.FromMobile = contactMobile
+			transaction.ToMobile = userMobile
+		} else if newType == string(models.TransactionGive) && transaction.ToMobile == userMobile {
+			contactMobile := transaction.FromMobile
+			transaction.FromMobile = userMobile
+			transaction.ToMobile = contactMobile
+		}
+	}
+
+	if oldAmount != req.Amount || oldNote != req.Note || typeChanged {
 		now := time.Now()
 		transaction.IsEdited = true
 		transaction.PreviousAmount = oldAmount
@@ -105,12 +122,17 @@ func (s *TransactionService) UpdateTransaction(
 		transaction.EditedAt = &now
 		transaction.UpdatedBy = userMobile
 
+		logNote := req.Note
+		if typeChanged {
+			logNote = fmt.Sprintf("[%s ➔ %s] %s", oldType, newType, req.Note)
+		}
+
 		editLog := models.TransactionEditLog{
 			TransactionID: transaction.ID,
 			OldAmount:     oldAmount,
 			NewAmount:     req.Amount,
 			OldNote:       oldNote,
-			NewNote:       req.Note,
+			NewNote:       logNote,
 			EditedBy:      userMobile,
 			EditedAt:      now,
 		}

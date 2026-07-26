@@ -144,6 +144,34 @@ func (s *AuthService) Login(req dto.LoginRequest) (bool, error) {
 	return false, nil
 }
 
+// -------------------- SEND FORGOT PASSCODE OTP --------------------
+
+func (s *AuthService) SendForgotPasscodeOTP(email string) error {
+	user, err := s.UserRepo.GetByEmail(email)
+	if err != nil || user == nil {
+		return errors.New("no registered account found with this email address")
+	}
+
+	otp := utils.GenerateOTP()
+
+	verification := models.OTPVerification{
+		Email:     user.Email,
+		OTP:       otp,
+		Purpose:   "login",
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+
+	if err := s.OTPRepo.CreateOrUpdate(&verification); err != nil {
+		return err
+	}
+
+	if err := s.EmailService.SendOTP(user.Email, otp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // -------------------- VERIFY LOGIN --------------------
 
 func (s *AuthService) VerifyLogin(req dto.LoginVerifyRequest) (string, *models.User, error) {

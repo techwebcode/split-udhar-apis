@@ -124,6 +124,31 @@ func (a *AuthController) Login(c *gin.Context) {
 	}
 }
 
+func (a *AuthController) SendForgotPasscodeOTP(c *gin.Context) {
+	var req dto.LoginRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Valid email address is required",
+		})
+		return
+	}
+
+	if err := a.Service.SendForgotPasscodeOTP(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "OTP code sent to your registered email",
+	})
+}
+
 func (a *AuthController) VerifyLogin(c *gin.Context) {
 
 	var req dto.LoginVerifyRequest

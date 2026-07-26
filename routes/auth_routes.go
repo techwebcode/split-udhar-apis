@@ -19,6 +19,10 @@ func AuthRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	router.POST("/login/verify", auth.VerifyLogin)
 
+	router.POST("/forgot-password/send-otp", auth.SendForgotPasscodeOTP)
+
+	router.POST("/send-otp", auth.SendForgotPasscodeOTP)
+
 	router.POST("/mpin/set", auth.SetMPIN)
 
 	router.POST("/mpin/verify", auth.VerifyMPIN)

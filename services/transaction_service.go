@@ -86,9 +86,14 @@ func (s *TransactionService) UpdateTransaction(
 		userEmail = currentUser.Email
 	}
 
-	isOwner := (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) ||
-		(transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
-		(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	isOwner := false
+	if transaction.CreatedBy != "" {
+		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
+	} else {
+		// Fallback for legacy transactions where CreatedBy was empty
+		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	}
 
 	if !isOwner {
 		return errors.New("only the transaction creator can edit this transaction")
@@ -186,9 +191,14 @@ func (s *TransactionService) DeleteTransaction(
 		userEmail = currentUser.Email
 	}
 
-	isOwner := (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) ||
-		(transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
-		(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	isOwner := false
+	if transaction.CreatedBy != "" {
+		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
+	} else {
+		// Fallback for legacy transactions where CreatedBy was empty
+		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	}
 
 	if !isOwner {
 		return errors.New("only the transaction creator can delete this transaction")

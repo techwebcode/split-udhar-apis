@@ -16,5 +16,6 @@ func FCMRoutes(apiGroup *gin.RouterGroup, db *gorm.DB) {
 	{
 		userGroup.POST("/fcm-token", fcmController.SaveToken)
 		userGroup.DELETE("/fcm-token", fcmController.DeleteToken)
+		userGroup.POST("/test-notification", fcmController.TestNotification)
 	}
 }

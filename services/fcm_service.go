@@ -84,3 +84,36 @@ func (s *FCMService) SendNotificationToUsers(targetMobiles []string, title, body
 
 	return err
 }
+
+func (s *FCMService) SendTestNotification(userMobile string, req dto.TestNotificationRequest) (int, error) {
+	title := req.Title
+	if title == "" {
+		title = "SplitUdhar Test Notification 🔔"
+	}
+	body := req.Body
+	if body == "" {
+		body = "Push notification service is working successfully!"
+	}
+	msgType := req.Type
+	if msgType == "" {
+		msgType = "transaction"
+	}
+
+	data := map[string]string{
+		"type":           msgType,
+		"test":           "true",
+		"transaction_id": "1",
+	}
+
+	tokens, err := s.deviceRepo.GetTokensByMobile(userMobile)
+	if err != nil || len(tokens) == 0 {
+		return 0, nil
+	}
+
+	invalidTokens, err := utils.SendMulticastFCM(tokens, title, body, data)
+	if len(invalidTokens) > 0 {
+		_ = s.deviceRepo.DeleteInvalidTokens(invalidTokens)
+	}
+
+	return len(tokens) - len(invalidTokens), err
+}

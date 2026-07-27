@@ -78,3 +78,32 @@ func (f *FCMController) DeleteToken(c *gin.Context) {
 		"message": "FCM device token deleted successfully",
 	})
 }
+
+func (f *FCMController) TestNotification(c *gin.Context) {
+	userMobile := c.GetString("mobile")
+	if userMobile == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "User mobile not found in token context",
+		})
+		return
+	}
+
+	var req dto.TestNotificationRequest
+	_ = c.ShouldBindJSON(&req)
+
+	sentCount, err := f.Service.SendTestNotification(userMobile, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"message":      "Test push notification dispatched successfully",
+		"tokens_count": sentCount,
+	})
+}

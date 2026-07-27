@@ -10,3 +10,9 @@ type DeleteFCMTokenRequest struct {
 	FCMToken string `json:"fcm_token"`
 	DeviceID string `json:"device_id"`
 }
+
+type TestNotificationRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Type  string `json:"type"`
+}

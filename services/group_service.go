@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
@@ -13,6 +14,7 @@ type GroupService struct {
 	groupRepo       *repositories.GroupRepository
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
+	fcmService      *FCMService
 }
 
 func NewGroupService(db *gorm.DB) *GroupService {
@@ -20,6 +22,7 @@ func NewGroupService(db *gorm.DB) *GroupService {
 		groupRepo:       repositories.NewGroupRepository(db),
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
+		fcmService:      NewFCMService(db),
 	}
 }
 
@@ -212,6 +215,37 @@ func (s *GroupService) AddGroupExpense(groupID uint, userMobile string, req dto.
 		}
 	}
 
+	// Dispatch FCM push notifications to all group members except creator
+	go func() {
+		creatorName := userMobile
+		creatorUser, err := s.userRepo.GetByMobile(userMobile)
+		if err == nil && creatorUser != nil && creatorUser.FullName != "" {
+			creatorName = creatorUser.FullName
+		}
+
+		var recipientMobiles []string
+		for _, m := range group.Members {
+			if m.UserMobile != userMobile {
+				recipientMobiles = append(recipientMobiles, m.UserMobile)
+			}
+		}
+
+		if len(recipientMobiles) > 0 {
+			title := "New Group Expense"
+			body := fmt.Sprintf("%s added ₹%.0f in %s", creatorName, req.Amount, group.Name)
+
+			data := map[string]string{
+				"type":        "group",
+				"group_id":    fmt.Sprintf("%d", groupID),
+				"group_name":  group.Name,
+				"description": req.Description,
+				"amount":      fmt.Sprintf("%.2f", req.Amount),
+			}
+
+			_ = s.fcmService.SendNotificationToUsers(recipientMobiles, title, body, data)
+		}
+	}()
+
 	return nil
 }
 
@@ -279,6 +313,34 @@ func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.Sett
 		CreatedBy:   userMobile,
 	}
 	_ = s.transactionRepo.Create(&txn)
+
+	// Dispatch FCM notification for Settlement asynchronously
+	go func() {
+		settlerName := userMobile
+		settlerUser, err := s.userRepo.GetByMobile(userMobile)
+		if err == nil && settlerUser != nil && settlerUser.FullName != "" {
+			settlerName = settlerUser.FullName
+		}
+
+		targetMobile := req.ReceiverMobile
+		if targetMobile == userMobile {
+			targetMobile = req.PayerMobile
+		}
+
+		if targetMobile != "" && targetMobile != userMobile {
+			title := "Settlement"
+			body := fmt.Sprintf("%s settled ₹%.0f", settlerName, req.Amount)
+
+			data := map[string]string{
+				"type":       "settlement",
+				"group_id":   fmt.Sprintf("%d", groupID),
+				"group_name": group.Name,
+				"amount":     fmt.Sprintf("%.2f", req.Amount),
+			}
+
+			_ = s.fcmService.SendNotificationToUser(targetMobile, title, body, data)
+		}
+	}()
 
 	return nil
 }

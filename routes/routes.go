@@ -32,4 +32,5 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	UserRoutes(protected.Group("/users"), db)
 	TransactionRoutes(api, db)
 	GroupRoutes(api, db)
+	FCMRoutes(api, db)
 }

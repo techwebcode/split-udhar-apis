@@ -17,12 +17,14 @@ import (
 type TransactionService struct {
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
+	fcmService      *FCMService
 }
 
 func NewTransactionService(db *gorm.DB) *TransactionService {
 	return &TransactionService{
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
+		fcmService:      NewFCMService(db),
 	}
 }
 
@@ -65,7 +67,31 @@ func (s *TransactionService) CreateTransaction(userMobile string, req dto.Create
 		return errors.New("invalid transaction type")
 	}
 
-	return s.transactionRepo.Create(&transaction)
+	if err := s.transactionRepo.Create(&transaction); err != nil {
+		return err
+	}
+
+	// Dispatch FCM notification to target recipient asynchronously
+	go func() {
+		senderName := userMobile
+		if currentUser != nil && currentUser.FullName != "" {
+			senderName = currentUser.FullName
+		}
+
+		title := "New Transaction"
+		body := fmt.Sprintf("%s added ₹%.0f.", senderName, req.Amount)
+
+		data := map[string]string{
+			"type":           "transaction",
+			"transaction_id": fmt.Sprintf("%d", transaction.ID),
+			"mobile":         userMobile,
+			"amount":         fmt.Sprintf("%.2f", req.Amount),
+		}
+
+		_ = s.fcmService.SendNotificationToUser(req.Mobile, title, body, data)
+	}()
+
+	return nil
 }
 
 func (s *TransactionService) UpdateTransaction(

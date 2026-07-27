@@ -165,7 +165,7 @@ func (s *AuthService) SendForgotPasscodeOTP(email string) error {
 		return err
 	}
 
-	if err := s.EmailService.SendOTP(user.Email, otp); err != nil {
+	if err := s.EmailService.SendForgotPasscodeOTP(user.Email, otp); err != nil {
 		return err
 	}
 

@@ -58,11 +58,25 @@ func (r *UserDeviceRepository) DeleteToken(mobile, token, deviceID string) error
 	return query.Delete(&models.UserDevice{}).Error
 }
 
-func (r *UserDeviceRepository) GetTokensByMobile(mobile string) ([]string, error) {
+func (r *UserDeviceRepository) GetTokensByMobile(mobile string, userID uint) ([]string, error) {
 	var tokens []string
-	err := r.db.Model(&models.UserDevice{}).
-		Where("mobile = ? AND fcm_token != ''", mobile).
-		Pluck("fcm_token", &tokens).Error
+	cleanMobile := mobile
+	if len(mobile) >= 10 {
+		cleanMobile = mobile[len(mobile)-10:]
+	}
+
+	query := r.db.Model(&models.UserDevice{}).Where("fcm_token != ''")
+	if userID > 0 && cleanMobile != "" {
+		query = query.Where("user_id = ? OR mobile = ? OR RIGHT(mobile, 10) = ?", userID, mobile, cleanMobile)
+	} else if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	} else if cleanMobile != "" {
+		query = query.Where("mobile = ? OR RIGHT(mobile, 10) = ?", mobile, cleanMobile)
+	} else {
+		return []string{}, nil
+	}
+
+	err := query.Pluck("fcm_token", &tokens).Error
 	return tokens, err
 }
 

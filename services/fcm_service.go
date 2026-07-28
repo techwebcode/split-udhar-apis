@@ -22,11 +22,24 @@ func NewFCMService(db *gorm.DB) *FCMService {
 	}
 }
 
-func (s *FCMService) SaveFCMToken(userMobile string, req dto.SaveFCMTokenRequest) error {
-	user, err := s.userRepo.GetByMobile(userMobile)
-	var userID uint = 0
-	if err == nil && user != nil {
+func (s *FCMService) SaveFCMToken(userMobile string, userID uint, req dto.SaveFCMTokenRequest) error {
+	var user *models.User
+	if userID > 0 {
+		user, _ = s.userRepo.GetByID(userID)
+	}
+	if user == nil && userMobile != "" {
+		user, _ = s.userRepo.GetByMobile(userMobile)
+		if user == nil {
+			user, _ = s.userRepo.GetByEmail(userMobile)
+		}
+	}
+
+	mobileVal := userMobile
+	if user != nil {
 		userID = user.ID
+		if user.Mobile != "" {
+			mobileVal = user.Mobile
+		}
 	}
 
 	platform := req.Platform
@@ -36,13 +49,13 @@ func (s *FCMService) SaveFCMToken(userMobile string, req dto.SaveFCMTokenRequest
 
 	device := models.UserDevice{
 		UserID:   userID,
-		Mobile:   userMobile,
+		Mobile:   mobileVal,
 		FCMToken: req.FCMToken,
 		Platform: platform,
 		DeviceID: req.DeviceID,
 	}
 
-	log.Printf("[FCM SERVICE] Saving token for user '%s' (DeviceID: '%s')", userMobile, req.DeviceID)
+	log.Printf("[FCM SERVICE] Saving token for user '%s' (UserID: %d, DeviceID: '%s')", mobileVal, userID, req.DeviceID)
 	return s.deviceRepo.SaveToken(&device)
 }
 
@@ -52,9 +65,15 @@ func (s *FCMService) DeleteFCMToken(userMobile string, req dto.DeleteFCMTokenReq
 }
 
 func (s *FCMService) SendNotificationToUser(targetMobile string, title, body string, data map[string]string) error {
-	tokens, err := s.deviceRepo.GetTokensByMobile(targetMobile)
+	var userID uint = 0
+	u, _ := s.userRepo.GetByMobile(targetMobile)
+	if u != nil {
+		userID = u.ID
+	}
+
+	tokens, err := s.deviceRepo.GetTokensByMobile(targetMobile, userID)
 	if err != nil || len(tokens) == 0 {
-		log.Printf("[FCM SERVICE] No registered FCM device tokens found for mobile '%s'", targetMobile)
+		log.Printf("[FCM SERVICE] No registered FCM device tokens found for mobile '%s' (UserID: %d)", targetMobile, userID)
 		return nil
 	}
 
@@ -85,7 +104,20 @@ func (s *FCMService) SendNotificationToUsers(targetMobiles []string, title, body
 	return err
 }
 
-func (s *FCMService) SendTestNotification(userMobile string, req dto.TestNotificationRequest) (int, error) {
+func (s *FCMService) SendTestNotification(userMobile string, userID uint, req dto.TestNotificationRequest) (int, error) {
+	if userID == 0 && userMobile != "" {
+		u, _ := s.userRepo.GetByMobile(userMobile)
+		if u == nil {
+			u, _ = s.userRepo.GetByEmail(userMobile)
+		}
+		if u != nil {
+			userID = u.ID
+			if userMobile == "" {
+				userMobile = u.Mobile
+			}
+		}
+	}
+
 	title := req.Title
 	if title == "" {
 		title = "SplitUdhar Test Notification 🔔"
@@ -105,10 +137,12 @@ func (s *FCMService) SendTestNotification(userMobile string, req dto.TestNotific
 		"transaction_id": "1",
 	}
 
-	tokens, err := s.deviceRepo.GetTokensByMobile(userMobile)
+	tokens, err := s.deviceRepo.GetTokensByMobile(userMobile, userID)
 	if err != nil || len(tokens) == 0 {
+		log.Printf("[FCM SERVICE] No registered device tokens found for mobile '%s', UserID %d", userMobile, userID)
 		return 0, nil
 	}
+	log.Printf("[FCM SERVICE] Found %d token(s) for user '%s' (UserID %d): %v", len(tokens), userMobile, userID, tokens)
 
 	invalidTokens, err := utils.SendMulticastFCM(tokens, title, body, data)
 	if len(invalidTokens) > 0 {

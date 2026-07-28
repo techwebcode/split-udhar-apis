@@ -21,13 +21,7 @@ func NewFCMController(db *gorm.DB) *FCMController {
 
 func (f *FCMController) SaveToken(c *gin.Context) {
 	userMobile := c.GetString("mobile")
-	if userMobile == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "User mobile not found in token context",
-		})
-		return
-	}
+	userID := c.GetUint("user_id")
 
 	var req dto.SaveFCMTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,7 +32,7 @@ func (f *FCMController) SaveToken(c *gin.Context) {
 		return
 	}
 
-	if err := f.Service.SaveFCMToken(userMobile, req); err != nil {
+	if err := f.Service.SaveFCMToken(userMobile, userID, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -81,22 +75,25 @@ func (f *FCMController) DeleteToken(c *gin.Context) {
 
 func (f *FCMController) TestNotification(c *gin.Context) {
 	userMobile := c.GetString("mobile")
-	if userMobile == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "User mobile not found in token context",
-		})
-		return
-	}
+	userID := c.GetUint("user_id")
 
 	var req dto.TestNotificationRequest
 	_ = c.ShouldBindJSON(&req)
 
-	sentCount, err := f.Service.SendTestNotification(userMobile, req)
+	sentCount, err := f.Service.SendTestNotification(userMobile, userID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": err.Error(),
+		})
+		return
+	}
+
+	if sentCount == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success":      false,
+			"message":      "No registered FCM device token found for your account. Please log in on the app or call POST /api/user/fcm-token first.",
+			"tokens_count": 0,
 		})
 		return
 	}

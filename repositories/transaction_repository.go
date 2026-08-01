@@ -24,17 +24,30 @@ func (r *TransactionRepository) Delete(id uint) error {
 	return r.DB.Delete(&models.Transaction{}, id).Error
 }
 
-func (r *TransactionRepository) GetTransactionsBetween(userMobile, otherMobile string) ([]models.Transaction, error) {
+func extractTenDigits(mobile string) string {
+	digits := ""
+	for _, ch := range mobile {
+		if ch >= '0' && ch <= '9' {
+			digits += string(ch)
+		}
+	}
+	if len(digits) >= 10 {
+		return digits[len(digits)-10:]
+	}
+	return digits
+}
 
+func (r *TransactionRepository) GetTransactionsBetween(userMobile, otherMobile string) ([]models.Transaction, error) {
 	var transactions []models.Transaction
+	u10 := extractTenDigits(userMobile)
+	o10 := extractTenDigits(otherMobile)
 
 	err := r.DB.
 		Where(
-			"(from_mobile=? AND to_mobile=?) OR (from_mobile=? AND to_mobile=?)",
-			userMobile,
-			otherMobile,
-			otherMobile,
-			userMobile,
+			"((from_mobile = ? OR RIGHT(from_mobile, 10) = ?) AND (to_mobile = ? OR RIGHT(to_mobile, 10) = ?)) OR "+
+				"((from_mobile = ? OR RIGHT(from_mobile, 10) = ?) AND (to_mobile = ? OR RIGHT(to_mobile, 10) = ?))",
+			userMobile, u10, otherMobile, o10,
+			otherMobile, o10, userMobile, u10,
 		).
 		Order("transaction_date DESC").
 		Find(&transactions).Error
@@ -43,11 +56,14 @@ func (r *TransactionRepository) GetTransactionsBetween(userMobile, otherMobile s
 }
 
 func (r *TransactionRepository) GetUserTransactions(userMobile string) ([]models.Transaction, error) {
-
 	var transactions []models.Transaction
+	u10 := extractTenDigits(userMobile)
 
 	err := r.DB.
-		Where("from_mobile=? OR to_mobile=?", userMobile, userMobile).
+		Where(
+			"from_mobile = ? OR to_mobile = ? OR RIGHT(from_mobile, 10) = ? OR RIGHT(to_mobile, 10) = ?",
+			userMobile, userMobile, u10, u10,
+		).
 		Order("transaction_date DESC").
 		Find(&transactions).Error
 
@@ -86,14 +102,13 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 	count int64,
 	err error,
 ) {
-
 	var transactions []models.Transaction
+	u10 := extractTenDigits(mobile)
 
 	err = r.DB.
 		Where(
-			"from_mobile = ? OR to_mobile = ?",
-			mobile,
-			mobile,
+			"from_mobile = ? OR to_mobile = ? OR RIGHT(from_mobile, 10) = ? OR RIGHT(to_mobile, 10) = ?",
+			mobile, mobile, u10, u10,
 		).
 		Find(&transactions).Error
 
@@ -105,15 +120,17 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 		if transaction.IsDeleted {
 			continue
 		}
-		if transaction.FromMobile == mobile {
+		from10 := extractTenDigits(transaction.FromMobile)
+		to10 := extractTenDigits(transaction.ToMobile)
+
+		if transaction.FromMobile == mobile || from10 == u10 {
 			given += transaction.Amount
-		} else if transaction.ToMobile == mobile {
+		} else if transaction.ToMobile == mobile || to10 == u10 {
 			received += transaction.Amount
 		}
 	}
 
 	count = int64(len(transactions))
-
 	return
 }
 
@@ -121,16 +138,16 @@ func (r *TransactionRepository) GetTransactionsByMobile(
 	userMobile string,
 	contactMobile string,
 ) ([]models.Transaction, error) {
-
 	var transactions []models.Transaction
+	u10 := extractTenDigits(userMobile)
+	c10 := extractTenDigits(contactMobile)
 
 	err := r.DB.
 		Where(
-			"(from_mobile = ? AND to_mobile = ?) OR (from_mobile = ? AND to_mobile = ?)",
-			userMobile,
-			contactMobile,
-			contactMobile,
-			userMobile,
+			"((from_mobile = ? OR RIGHT(from_mobile, 10) = ?) AND (to_mobile = ? OR RIGHT(to_mobile, 10) = ?)) OR "+
+				"((from_mobile = ? OR RIGHT(from_mobile, 10) = ?) AND (to_mobile = ? OR RIGHT(to_mobile, 10) = ?))",
+			userMobile, u10, contactMobile, c10,
+			contactMobile, c10, userMobile, u10,
 		).
 		Order("transaction_date DESC").
 		Find(&transactions).Error

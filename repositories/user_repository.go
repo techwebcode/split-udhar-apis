@@ -17,27 +17,46 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 }
 
 func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
-	var user models.User
-
-	err := r.DB.Where("email = ?", email).First(&user).Error
-
+	if email == "" {
+		return nil, nil
+	}
+	var users []models.User
+	err := r.DB.Where("email = ?", email).Limit(1).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
-
-	return &user, nil
+	if len(users) == 0 {
+		return nil, nil
+	}
+	return &users[0], nil
 }
 
 func (r *UserRepository) GetByMobile(mobile string) (*models.User, error) {
-	var user models.User
+	if mobile == "" {
+		return nil, nil
+	}
 
-	err := r.DB.Where("mobile = ?", mobile).First(&user).Error
+	var users []models.User
+	cleanMobile := mobile
+	digits := ""
+	for _, ch := range mobile {
+		if ch >= '0' && ch <= '9' {
+			digits += string(ch)
+		}
+	}
+	if len(digits) >= 10 {
+		cleanMobile = digits[len(digits)-10:]
+	}
 
+	err := r.DB.Where("mobile = ? OR RIGHT(mobile, 10) = ?", mobile, cleanMobile).Limit(1).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
+	if len(users) == 0 {
+		return nil, nil
+	}
 
-	return &user, nil
+	return &users[0], nil
 }
 
 func (r *UserRepository) Create(user *models.User) error {

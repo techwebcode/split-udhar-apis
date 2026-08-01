@@ -313,6 +313,10 @@ func (s *TransactionService) GetTransactionSummary(
 			contactMobile = transaction.FromMobile
 		}
 
+		if transaction.IsDeleted {
+			continue
+		}
+
 		if _, exists := summaryMap[contactMobile]; !exists {
 			displayName := transaction.ContactName
 			regUser, err := s.userRepo.GetByMobile(contactMobile)
@@ -335,14 +339,12 @@ func (s *TransactionService) GetTransactionSummary(
 		item.TotalTransactions++
 		item.Transactions = append(item.Transactions, transaction)
 
-		if !transaction.IsDeleted {
-			if transaction.FromMobile == userMobile {
-				// User gave money
-				item.Balance += transaction.Amount
-			} else {
-				// User received money
-				item.Balance -= transaction.Amount
-			}
+		if transaction.FromMobile == userMobile {
+			// User gave money
+			item.Balance += transaction.Amount
+		} else {
+			// User received money
+			item.Balance -= transaction.Amount
 		}
 	}
 

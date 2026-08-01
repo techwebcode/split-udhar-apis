@@ -6,6 +6,7 @@ import (
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -145,6 +146,16 @@ func (s *GroupService) RemoveMember(groupID uint, requesterMobile string, target
 	group, err := s.groupRepo.GetByID(groupID)
 	if err != nil {
 		return err
+	}
+
+	// Only the group owner can remove members
+	if group.CreatedBy != requesterMobile {
+		return errors.New("only the group owner can remove members from this group")
+	}
+
+	// Group owner cannot remove themselves
+	if group.CreatedBy == targetMobile {
+		return errors.New("group owner cannot be removed from the group")
 	}
 
 	if len(group.Members) <= 1 {
@@ -343,4 +354,125 @@ func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.Sett
 	}()
 
 	return nil
+}
+
+func (s *GroupService) DeleteGroupExpense(groupID uint, expenseID uint, userMobile string) error {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return err
+	}
+
+	expense, err := s.groupRepo.GetExpenseByID(expenseID)
+	if err != nil {
+		return errors.New("expense not found")
+	}
+
+	// Only owner/creator of the expense or group creator can delete it
+	if expense.CreatedBy != userMobile && expense.PayerMobile != userMobile && group.CreatedBy != userMobile {
+		return errors.New("only the owner who added this transaction can delete it")
+	}
+
+	// Revert member balances
+	if len(group.Members) > 0 && expense.Amount > 0 {
+		splitCount := float64(len(group.Members))
+		perPersonShare := expense.Amount / splitCount
+		for _, m := range group.Members {
+			if m.UserMobile == expense.PayerMobile {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, -(expense.Amount - perPersonShare))
+			} else {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, perPersonShare)
+			}
+		}
+	}
+
+	return s.groupRepo.DeleteExpense(expenseID)
+}
+
+func (s *GroupService) UpdateGroupExpense(groupID uint, expenseID uint, userMobile string, req dto.UpdateGroupExpenseRequest) error {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return err
+	}
+
+	expense, err := s.groupRepo.GetExpenseByID(expenseID)
+	if err != nil {
+		return errors.New("expense not found")
+	}
+
+	if expense.CreatedBy != userMobile && expense.PayerMobile != userMobile && group.CreatedBy != userMobile {
+		return errors.New("only the owner who added this transaction can edit it")
+	}
+
+	if req.Amount <= 0 {
+		return errors.New("expense amount must be greater than 0")
+	}
+
+	// 1. Revert old expense balances
+	if len(group.Members) > 0 && expense.Amount > 0 {
+		oldSplitCount := float64(len(group.Members))
+		oldShare := expense.Amount / oldSplitCount
+		for _, m := range group.Members {
+			if m.UserMobile == expense.PayerMobile {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, -(expense.Amount - oldShare))
+			} else {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, oldShare)
+			}
+		}
+	}
+
+	// 2. Apply new expense info
+	newPayer := req.PayerMobile
+	if newPayer == "" {
+		newPayer = expense.PayerMobile
+	}
+	payerName := newPayer
+	payerUser, err := s.userRepo.GetByMobile(newPayer)
+	if err == nil && payerUser != nil {
+		payerName = payerUser.FullName
+	}
+
+	// Record edit log if description or amount changed
+	now := time.Now()
+	if expense.Amount != req.Amount || expense.Description != req.Description {
+		editLog := models.GroupExpenseEditLog{
+			ExpenseID:      expense.ID,
+			GroupID:        groupID,
+			OldAmount:      expense.Amount,
+			NewAmount:      req.Amount,
+			OldDescription: expense.Description,
+			NewDescription: req.Description,
+			EditedBy:       userMobile,
+			EditedAt:       now,
+		}
+		_ = s.groupRepo.CreateExpenseEditLog(&editLog)
+
+		expense.IsEdited = true
+		expense.PreviousAmount = expense.Amount
+		expense.PreviousDesc = expense.Description
+		expense.EditedAt = &now
+	}
+
+	expense.Description = req.Description
+	expense.Amount = req.Amount
+	expense.PayerMobile = newPayer
+	expense.PayerName = payerName
+
+	// 3. Apply new member balances
+	if len(group.Members) > 0 {
+		newSplitCount := float64(len(group.Members))
+		newShare := req.Amount / newSplitCount
+		for _, m := range group.Members {
+			if m.UserMobile == newPayer {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, req.Amount-newShare)
+			} else {
+				_ = s.groupRepo.UpdateMemberBalance(groupID, m.UserMobile, -newShare)
+			}
+		}
+	}
+
+	return s.groupRepo.UpdateExpense(expense)
+}
+
+func (s *GroupService) GetGroupExpenseEditHistory(expenseID uint) ([]models.GroupExpenseEditLog, error) {
+	return s.groupRepo.GetExpenseEditLogs(expenseID)
 }

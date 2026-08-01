@@ -23,3 +23,9 @@ type SettleGroupRequest struct {
 	ReceiverMobile string  `json:"receiver_mobile" binding:"required"`
 	Amount         float64 `json:"amount" binding:"required"`
 }
+
+type UpdateGroupExpenseRequest struct {
+	Description string  `json:"description" binding:"required"`
+	Amount      float64 `json:"amount" binding:"required,gt=0"`
+	PayerMobile string  `json:"payer_mobile"`
+}

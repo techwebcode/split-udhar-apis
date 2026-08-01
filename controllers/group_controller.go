@@ -254,3 +254,76 @@ func (g *GroupController) Settle(c *gin.Context) {
 		"message": "Group settled up successfully",
 	})
 }
+
+func (g *GroupController) DeleteExpense(c *gin.Context) {
+	groupIDStr := c.Param("id")
+	groupID, err := strconv.ParseUint(groupIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid group id"})
+		return
+	}
+
+	expenseIDStr := c.Param("expense_id")
+	expenseID, err := strconv.ParseUint(expenseIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid expense id"})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = g.Service.DeleteGroupExpense(uint(groupID), uint(expenseID), userMobile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Group expense deleted successfully"})
+}
+
+func (g *GroupController) UpdateExpense(c *gin.Context) {
+	groupIDStr := c.Param("id")
+	groupID, err := strconv.ParseUint(groupIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid group id"})
+		return
+	}
+
+	expenseIDStr := c.Param("expense_id")
+	expenseID, err := strconv.ParseUint(expenseIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid expense id"})
+		return
+	}
+
+	var req dto.UpdateGroupExpenseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = g.Service.UpdateGroupExpense(uint(groupID), uint(expenseID), userMobile, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Group expense updated successfully"})
+}
+
+func (g *GroupController) GetExpenseEditLogs(c *gin.Context) {
+	expenseIDStr := c.Param("expense_id")
+	expenseID, err := strconv.ParseUint(expenseIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid expense id"})
+		return
+	}
+
+	logs, err := g.Service.GetGroupExpenseEditHistory(uint(expenseID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": logs})
+}

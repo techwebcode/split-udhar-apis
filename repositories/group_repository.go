@@ -77,6 +77,33 @@ func (r *GroupRepository) CreateExpense(expense *models.GroupExpense) error {
 	return r.DB.Create(expense).Error
 }
 
+func (r *GroupRepository) GetExpenseByID(expenseID uint) (*models.GroupExpense, error) {
+	var expense models.GroupExpense
+	err := r.DB.First(&expense, expenseID).Error
+	if err != nil {
+		return nil, err
+	}
+	return &expense, nil
+}
+
+func (r *GroupRepository) UpdateExpense(expense *models.GroupExpense) error {
+	return r.DB.Save(expense).Error
+}
+
+func (r *GroupRepository) DeleteExpense(expenseID uint) error {
+	return r.DB.Delete(&models.GroupExpense{Model: gorm.Model{ID: expenseID}}).Error
+}
+
+func (r *GroupRepository) CreateExpenseEditLog(log *models.GroupExpenseEditLog) error {
+	return r.DB.Create(log).Error
+}
+
+func (r *GroupRepository) GetExpenseEditLogs(expenseID uint) ([]models.GroupExpenseEditLog, error) {
+	var logs []models.GroupExpenseEditLog
+	err := r.DB.Where("expense_id = ?", expenseID).Order("edited_at desc").Find(&logs).Error
+	return logs, err
+}
+
 func (r *GroupRepository) Delete(id uint) error {
 	return r.DB.Select("Members", "Expenses").Delete(&models.Group{Model: gorm.Model{ID: id}}).Error
 }

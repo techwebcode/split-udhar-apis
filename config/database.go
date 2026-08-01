@@ -21,6 +21,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.Group{},
 		&models.GroupMember{},
 		&models.GroupExpense{},
+		&models.GroupExpenseEditLog{},
 		&models.UserDevice{},
 	)
 }

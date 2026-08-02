@@ -16,6 +16,7 @@ type AddGroupExpenseRequest struct {
 	Description string   `json:"description" binding:"required"`
 	PayerMobile string   `json:"payer_mobile" binding:"required"`
 	SplitWith   []string `json:"split_with"` // List of member mobiles
+	ExpenseDate string   `json:"expense_date"`
 }
 
 type SettleGroupRequest struct {

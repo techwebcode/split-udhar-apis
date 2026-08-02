@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"split-udhar-apis/dto"
@@ -31,12 +32,14 @@ func NewAuthService(db *gorm.DB) *AuthService {
 // -------------------- SIGNUP --------------------
 
 func (s *AuthService) Signup(req dto.SignupRequest) error {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Mobile = strings.TrimSpace(req.Mobile)
 
-	if _, err := s.UserRepo.GetByEmail(req.Email); err == nil {
+	if existingUser, err := s.UserRepo.GetByEmail(req.Email); err == nil && existingUser != nil {
 		return errors.New("email already registered")
 	}
 
-	if _, err := s.UserRepo.GetByMobile(req.Mobile); err == nil {
+	if existingUser, err := s.UserRepo.GetByMobile(req.Mobile); err == nil && existingUser != nil {
 		return errors.New("mobile already registered")
 	}
 
@@ -73,6 +76,8 @@ func (s *AuthService) Signup(req dto.SignupRequest) error {
 // -------------------- VERIFY SIGNUP --------------------
 
 func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, *models.User, error) {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.OTP = strings.TrimSpace(req.OTP)
 
 	record, err := s.OTPRepo.Get(req.Email, "signup", req.OTP)
 	if err != nil {
@@ -115,7 +120,7 @@ func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, *models
 func (s *AuthService) Login(req dto.LoginRequest) (bool, error) {
 
 	user, err := s.UserRepo.GetByEmail(req.Email)
-	if err != nil {
+	if err != nil || user == nil {
 		return false, errors.New("user not found")
 	}
 

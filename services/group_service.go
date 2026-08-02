@@ -181,6 +181,15 @@ func (s *GroupService) AddGroupExpense(groupID uint, userMobile string, req dto.
 		payerName = payerUser.FullName
 	}
 
+	expDate := time.Now()
+	if req.ExpenseDate != "" {
+		if parsedDate, err := time.Parse("2006-01-02", req.ExpenseDate); err == nil {
+			expDate = parsedDate
+		} else if parsedDate, err := time.Parse(time.RFC3339, req.ExpenseDate); err == nil {
+			expDate = parsedDate
+		}
+	}
+
 	// Save GroupExpense record
 	expense := models.GroupExpense{
 		GroupID:     groupID,
@@ -189,6 +198,7 @@ func (s *GroupService) AddGroupExpense(groupID uint, userMobile string, req dto.
 		PayerMobile: req.PayerMobile,
 		PayerName:   payerName,
 		CreatedBy:   userMobile,
+		ExpenseDate: &expDate,
 	}
 	_ = s.groupRepo.CreateExpense(&expense)
 

@@ -31,6 +31,7 @@ type GroupExpense struct {
 	PayerMobile    string     `gorm:"size:15;not null" json:"payer_mobile"`
 	PayerName      string     `gorm:"size:100" json:"payer_name"`
 	CreatedBy      string     `gorm:"size:15" json:"created_by"`
+	ExpenseDate    *time.Time `json:"expense_date"`
 	IsEdited       bool       `gorm:"default:false" json:"is_edited"`
 	PreviousAmount float64    `gorm:"type:decimal(12,2);default:0" json:"previous_amount"`
 	PreviousDesc   string     `gorm:"size:255" json:"previous_desc"`

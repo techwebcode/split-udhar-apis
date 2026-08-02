@@ -116,6 +116,8 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 		return
 	}
 
+	contactBalances := make(map[string]float64)
+
 	for _, transaction := range transactions {
 		if transaction.IsDeleted {
 			continue
@@ -123,10 +125,27 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 		from10 := extractTenDigits(transaction.FromMobile)
 		to10 := extractTenDigits(transaction.ToMobile)
 
+		var otherContact string
 		if transaction.FromMobile == mobile || from10 == u10 {
-			given += transaction.Amount
+			otherContact = to10
+			if otherContact == "" {
+				otherContact = transaction.ToMobile
+			}
+			contactBalances[otherContact] += transaction.Amount
 		} else if transaction.ToMobile == mobile || to10 == u10 {
-			received += transaction.Amount
+			otherContact = from10
+			if otherContact == "" {
+				otherContact = transaction.FromMobile
+			}
+			contactBalances[otherContact] -= transaction.Amount
+		}
+	}
+
+	for _, net := range contactBalances {
+		if net > 0 {
+			received += net
+		} else if net < 0 {
+			given += -net
 		}
 	}
 

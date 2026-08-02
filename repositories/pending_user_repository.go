@@ -20,11 +20,12 @@ func (r *PendingUserRepository) CreateOrUpdate(user *models.PendingUser) error {
 
 	var existing models.PendingUser
 
-	err := r.DB.Where("email = ?", user.Email).First(&existing).Error
+	err := r.DB.Where("email = ? OR mobile = ?", user.Email, user.Mobile).First(&existing).Error
 
 	if err == nil {
 
 		existing.FullName = user.FullName
+		existing.Email = user.Email
 		existing.Mobile = user.Mobile
 
 		return r.DB.Save(&existing).Error

@@ -73,3 +73,22 @@ func (u *UserController) UpdateProfile(c *gin.Context) {
 		"message": "Profile updated successfully",
 	})
 }
+
+func (u *UserController) DeleteAccount(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	err := u.Service.DeleteAccount(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to delete account: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Account deleted successfully",
+	})
+}
+

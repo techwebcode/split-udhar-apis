@@ -14,4 +14,7 @@ func UserRoutes(router *gin.RouterGroup, db *gorm.DB) {
 	router.GET("/profile", user.GetProfile)
 
 	router.PUT("/profile", user.UpdateProfile)
+
+	router.DELETE("/profile", user.DeleteAccount)
 }
+

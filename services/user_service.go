@@ -33,3 +33,8 @@ func (s *UserService) UpdateProfile(userID uint, req dto.UpdateProfileRequest) e
 
 	return s.UserRepo.Update(user)
 }
+
+func (s *UserService) DeleteAccount(userID uint) error {
+	return s.UserRepo.DeleteAccount(userID)
+}
+

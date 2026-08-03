@@ -79,6 +79,30 @@ func (r *UserRepository) Update(user *models.User) error {
 	return r.DB.Save(user).Error
 }
 
+func (r *UserRepository) DeleteAccount(userID uint) error {
+	var user models.User
+	if err := r.DB.First(&user, userID).Error; err != nil {
+		return err
+	}
+
+	// 1. Delete user device tokens
+	r.DB.Where("user_id = ? OR mobile = ?", user.ID, user.Mobile).Delete(&models.UserDevice{})
+
+	// 2. Delete OTP verifications associated with email/mobile
+	if user.Email != "" || user.Mobile != "" {
+		r.DB.Where("email = ? OR mobile = ?", user.Email, user.Mobile).Delete(&models.OTPVerification{})
+	}
+
+	// 3. Delete pending user registration records if any
+	if user.Email != "" || user.Mobile != "" {
+		r.DB.Where("email = ? OR mobile = ?", user.Email, user.Mobile).Delete(&models.PendingUser{})
+	}
+
+	// 4. Delete user profile & credentials completely (unscoped hard delete)
+	return r.DB.Unscoped().Delete(&user).Error
+}
+
+
 func (r *TransactionRepository) GetTransactionSummary(
 	mobile string,
 ) ([]models.Transaction, error) {

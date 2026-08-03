@@ -15,6 +15,6 @@ func UserRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	router.PUT("/profile", user.UpdateProfile)
 
-	router.DELETE("/profile", user.DeleteAccount)
+	router.DELETE("/delete-account", user.DeleteAccount)
 }
 

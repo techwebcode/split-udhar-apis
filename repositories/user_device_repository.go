@@ -65,18 +65,19 @@ func (r *UserDeviceRepository) GetTokensByMobile(mobile string, userID uint) ([]
 		cleanMobile = mobile[len(mobile)-10:]
 	}
 
-	query := r.db.Model(&models.UserDevice{}).Where("fcm_token != ''")
+	query := r.db.Model(&models.UserDevice{}).Where("deleted_at IS NULL AND fcm_token IS NOT NULL AND fcm_token != ''")
+
 	if userID > 0 && cleanMobile != "" {
-		query = query.Where("user_id = ? OR mobile = ? OR RIGHT(mobile, 10) = ?", userID, mobile, cleanMobile)
+		query = query.Where("(user_id = ? OR mobile = ? OR RIGHT(mobile, 10) = ?)", userID, mobile, cleanMobile)
 	} else if userID > 0 {
 		query = query.Where("user_id = ?", userID)
 	} else if cleanMobile != "" {
-		query = query.Where("mobile = ? OR RIGHT(mobile, 10) = ?", mobile, cleanMobile)
+		query = query.Where("(mobile = ? OR RIGHT(mobile, 10) = ?)", mobile, cleanMobile)
 	} else {
 		return []string{}, nil
 	}
 
-	err := query.Pluck("fcm_token", &tokens).Error
+	err := query.Distinct("fcm_token").Pluck("fcm_token", &tokens).Error
 	return tokens, err
 }
 
@@ -86,7 +87,8 @@ func (r *UserDeviceRepository) GetTokensByMobiles(mobiles []string) ([]string, e
 	}
 	var tokens []string
 	err := r.db.Model(&models.UserDevice{}).
-		Where("mobile IN ? AND fcm_token != ''", mobiles).
+		Where("deleted_at IS NULL AND mobile IN ? AND fcm_token IS NOT NULL AND fcm_token != ''", mobiles).
+		Distinct("fcm_token").
 		Pluck("fcm_token", &tokens).Error
 	return tokens, err
 }

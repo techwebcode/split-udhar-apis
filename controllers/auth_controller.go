@@ -196,7 +196,10 @@ func (a *AuthController) SetMPIN(c *gin.Context) {
 		return
 	}
 
-	if err := a.Service.SetMPIN(req); err != nil {
+	// Target account comes from the authenticated JWT, not the request body.
+	userID := c.GetUint("user_id")
+
+	if err := a.Service.SetMPIN(userID, req); err != nil {
 
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

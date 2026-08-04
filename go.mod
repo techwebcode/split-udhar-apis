@@ -3,10 +3,13 @@ module split-udhar-apis
 go 1.25.1
 
 require (
+	firebase.google.com/go/v4 v4.21.0
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1
+	golang.org/x/crypto v0.54.0
+	google.golang.org/api v0.290.0
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.2
 )
@@ -23,7 +26,6 @@ require (
 	cloud.google.com/go/monitoring v1.29.0 // indirect
 	cloud.google.com/go/storage v1.62.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
-	firebase.google.com/go/v4 v4.21.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.32.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.56.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.56.0 // indirect
@@ -80,14 +82,12 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/api v0.290.0 // indirect
 	google.golang.org/appengine/v2 v2.0.6 // indirect
 	google.golang.org/genproto v0.0.0-20260511170946-3700d4141b60 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect

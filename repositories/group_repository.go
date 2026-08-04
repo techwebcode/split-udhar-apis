@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"split-udhar-apis/models"
+	"split-udhar-apis/utils"
 
 	"gorm.io/gorm"
 )
@@ -23,8 +24,11 @@ func (r *GroupRepository) Create(group *models.Group) error {
 func (r *GroupRepository) GetUserGroups(userMobile string) ([]models.Group, error) {
 	var groupIDs []uint
 
+	// Members may be stored with a country code while the JWT carries a bare
+	// 10-digit number, so match on both forms or the user sees no groups.
 	err := r.DB.Model(&models.GroupMember{}).
-		Where("user_mobile = ?", userMobile).
+		Where("user_mobile = ? OR RIGHT(user_mobile, 10) = ?",
+			userMobile, utils.NormalizeMobile(userMobile)).
 		Pluck("group_id", &groupIDs).Error
 
 	if err != nil {
@@ -56,6 +60,27 @@ func (r *GroupRepository) GetByID(id uint) (*models.Group, error) {
 		return nil, err
 	}
 	return &group, nil
+}
+
+// GetAllWithRelations loads every group with its members and expenses, for
+// maintenance tasks that replay the whole ledger.
+func (r *GroupRepository) GetAllWithRelations() ([]models.Group, error) {
+	var groups []models.Group
+	err := r.DB.Preload("Members").
+		Preload("Expenses", func(db *gorm.DB) *gorm.DB {
+			return db.Order("created_at ASC")
+		}).
+		Order("id ASC").
+		Find(&groups).Error
+	return groups, err
+}
+
+// SetMemberBalance overwrites a member's balance with an absolute value, as
+// opposed to UpdateMemberBalance which applies a relative delta.
+func (r *GroupRepository) SetMemberBalance(groupID uint, userMobile string, balance float64) error {
+	return r.DB.Model(&models.GroupMember{}).
+		Where("group_id = ? AND user_mobile = ?", groupID, userMobile).
+		Update("balance", balance).Error
 }
 
 func (r *GroupRepository) UpdateMemberBalance(groupID uint, userMobile string, delta float64) error {

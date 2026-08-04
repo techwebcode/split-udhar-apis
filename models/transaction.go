@@ -49,6 +49,11 @@ type Transaction struct {
 
 	GroupID *uint `json:"group_id,omitempty"`
 
+	// GroupExpenseID links a transaction back to the group expense that
+	// generated it, so editing or deleting that expense can clean up the
+	// per-member rows instead of leaving them stranded in the ledger.
+	GroupExpenseID *uint `gorm:"index" json:"group_expense_id,omitempty"`
+
 	Status TransactionStatus `gorm:"type:varchar(20);default:'pending'" json:"status"`
 
 	TransactionDate time.Time `json:"transaction_date"`

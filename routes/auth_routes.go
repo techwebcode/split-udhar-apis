@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	"split-udhar-apis/controllers"
+	"split-udhar-apis/middleware"
 )
 
 func AuthRoutes(router *gin.RouterGroup, db *gorm.DB) {
@@ -23,7 +24,14 @@ func AuthRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	router.POST("/send-otp", auth.SendForgotPasscodeOTP)
 
-	router.POST("/mpin/set", auth.SetMPIN)
-
+	// MPIN verification is itself a login mechanism, so it stays public.
 	router.POST("/mpin/verify", auth.VerifyMPIN)
+
+	// Setting an MPIN requires an existing session. Without this an attacker
+	// could set the MPIN of any account by email and then log in with it.
+	authenticated := router.Group("")
+	authenticated.Use(middleware.AuthMiddleware())
+	{
+		authenticated.POST("/mpin/set", auth.SetMPIN)
+	}
 }

@@ -10,6 +10,7 @@ import (
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
+	"split-udhar-apis/utils"
 
 	"gorm.io/gorm"
 )
@@ -39,6 +40,9 @@ func (s *TransactionService) CreateTransaction(userMobile string, req dto.Create
 	currentUser, err := s.userRepo.GetByMobile(userMobile)
 	if err != nil {
 		return err
+	}
+	if currentUser == nil {
+		return errors.New("user not found")
 	}
 
 	transaction := models.Transaction{
@@ -279,9 +283,11 @@ func (s *TransactionService) GetDashboard(
 	}
 
 	return &DashboardResponse{
-		TotalGiven:        given,
-		TotalReceived:     received,
-		Balance:           given - received,
+		TotalGiven:    given,
+		TotalReceived: received,
+		// Positive means the user is owed money overall, matching the sign
+		// convention of GetTransactionHistory and of summary[].balance.
+		Balance:           received - given,
 		TotalTransactions: count,
 		Summary:           summary,
 	}, nil
@@ -292,7 +298,7 @@ func (s *TransactionService) GetTransactionSummary(
 ) ([]dto.TransactionSummaryResponse, error) {
 
 	transactions, err :=
-		s.transactionRepo.GetTransactionSummary(userMobile)
+		s.transactionRepo.GetUserTransactions(userMobile)
 
 	if err != nil {
 		return nil, err
@@ -302,22 +308,28 @@ func (s *TransactionService) GetTransactionSummary(
 
 	for _, transaction := range transactions {
 
-		var contactMobile string
-
-		if transaction.FromMobile == userMobile {
-
-			contactMobile = transaction.ToMobile
-
-		} else {
-
-			contactMobile = transaction.FromMobile
-		}
-
 		if transaction.IsDeleted {
 			continue
 		}
 
-		if _, exists := summaryMap[contactMobile]; !exists {
+		// Match on the normalized number: the same contact can be stored as
+		// "+919876543210" on one row and "9876543210" on another.
+		userIsPayer := utils.SameMobile(transaction.FromMobile, userMobile)
+
+		var contactMobile string
+		if userIsPayer {
+			contactMobile = transaction.ToMobile
+		} else {
+			contactMobile = transaction.FromMobile
+		}
+
+		// Key by the normalized number so one contact yields one summary row.
+		key := utils.NormalizeMobile(contactMobile)
+		if key == "" {
+			key = contactMobile
+		}
+
+		if _, exists := summaryMap[key]; !exists {
 			displayName := transaction.ContactName
 			regUser, err := s.userRepo.GetByMobile(contactMobile)
 			if err == nil && regUser != nil && regUser.FullName != "" {
@@ -326,7 +338,7 @@ func (s *TransactionService) GetTransactionSummary(
 				displayName = contactMobile
 			}
 
-			summaryMap[contactMobile] = &dto.TransactionSummaryResponse{
+			summaryMap[key] = &dto.TransactionSummaryResponse{
 				Mobile:              contactMobile,
 				ContactName:         displayName,
 				LastTransactionDate: transaction.TransactionDate,
@@ -334,16 +346,20 @@ func (s *TransactionService) GetTransactionSummary(
 			}
 		}
 
-		item := summaryMap[contactMobile]
+		item := summaryMap[key]
 
 		item.TotalTransactions++
 		item.Transactions = append(item.Transactions, transaction)
 
-		if transaction.FromMobile == userMobile {
-			// User gave money
+		if transaction.TransactionDate.After(item.LastTransactionDate) {
+			item.LastTransactionDate = transaction.TransactionDate
+		}
+
+		if userIsPayer {
+			// User gave money, so the contact owes it back
 			item.Balance += transaction.Amount
 		} else {
-			// User received money
+			// User received money and owes it back
 			item.Balance -= transaction.Amount
 		}
 	}
@@ -383,7 +399,7 @@ func (s *TransactionService) GetTransactionHistory(
 		if transaction.IsDeleted {
 			continue
 		}
-		if transaction.FromMobile == userMobile {
+		if utils.SameMobile(transaction.FromMobile, userMobile) {
 			response.TotalGiven += transaction.Amount
 		} else {
 			response.TotalReceived += transaction.Amount

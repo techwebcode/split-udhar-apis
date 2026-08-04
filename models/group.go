@@ -23,14 +23,36 @@ type GroupMember struct {
 	Balance    float64 `gorm:"type:decimal(12,2);default:0" json:"balance"`
 }
 
+// GroupExpenseKind distinguishes a shared expense from a settlement payment.
+// The two affect member balances differently, so replaying the ledger needs to
+// tell them apart without parsing the description text.
+type GroupExpenseKind string
+
+const (
+	GroupExpenseKindExpense    GroupExpenseKind = "expense"
+	GroupExpenseKindSettlement GroupExpenseKind = "settlement"
+)
+
 type GroupExpense struct {
 	gorm.Model
-	GroupID        uint       `gorm:"not null;index" json:"group_id"`
-	Description    string     `gorm:"size:255;not null" json:"description"`
-	Amount         float64    `gorm:"type:decimal(12,2);not null" json:"amount"`
-	PayerMobile    string     `gorm:"size:15;not null" json:"payer_mobile"`
-	PayerName      string     `gorm:"size:100" json:"payer_name"`
-	CreatedBy      string     `gorm:"size:15" json:"created_by"`
+	GroupID     uint    `gorm:"not null;index" json:"group_id"`
+	Description string  `gorm:"size:255;not null" json:"description"`
+	Amount      float64 `gorm:"type:decimal(12,2);not null" json:"amount"`
+	PayerMobile string  `gorm:"size:15;not null" json:"payer_mobile"`
+	PayerName   string  `gorm:"size:100" json:"payer_name"`
+	CreatedBy   string  `gorm:"size:15" json:"created_by"`
+
+	Kind GroupExpenseKind `gorm:"type:varchar(20);not null;default:'expense';index" json:"kind"`
+
+	// ReceiverMobile is only set on settlements: the member being paid. Without
+	// it a settlement can't be replayed, since the description records display
+	// names rather than numbers.
+	ReceiverMobile string `gorm:"size:15" json:"receiver_mobile,omitempty"`
+	// SplitWith records the exact member mobiles the expense was divided across,
+	// comma separated. It must be replayed when reverting balances, otherwise a
+	// subset split gets reverted across the whole group. Empty on rows created
+	// before this column existed, which are treated as "split across everyone".
+	SplitWith      string     `gorm:"type:text" json:"split_with"`
 	ExpenseDate    *time.Time `json:"expense_date"`
 	IsEdited       bool       `gorm:"default:false" json:"is_edited"`
 	PreviousAmount float64    `gorm:"type:decimal(12,2);default:0" json:"previous_amount"`

@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,16 @@ import (
 	"split-udhar-apis/utils"
 
 	"gorm.io/gorm"
+)
+
+const (
+	// otpValidity must stay in step with the "valid for N minutes" copy in
+	// templates/*.html and utils.ParseOTPTemplate's fallback body.
+	otpValidity = 10 * time.Minute
+
+	// maxMPINAttempts failed tries triggers a lockout of mpinLockoutWindow.
+	maxMPINAttempts   = 5
+	mpinLockoutWindow = 15 * time.Minute
 )
 
 type AuthService struct {
@@ -59,7 +70,7 @@ func (s *AuthService) Signup(req dto.SignupRequest) error {
 		Email:     req.Email,
 		OTP:       otp,
 		Purpose:   "signup",
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(otpValidity),
 	}
 
 	if err := s.OTPRepo.CreateOrUpdate(&verification); err != nil {
@@ -135,7 +146,7 @@ func (s *AuthService) Login(req dto.LoginRequest) (bool, error) {
 		Email:     user.Email,
 		OTP:       otp,
 		Purpose:   "login",
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(otpValidity),
 	}
 
 	if err := s.OTPRepo.CreateOrUpdate(&verification); err != nil {
@@ -163,7 +174,7 @@ func (s *AuthService) SendForgotPasscodeOTP(email string) error {
 		Email:     user.Email,
 		OTP:       otp,
 		Purpose:   "login",
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(otpValidity),
 	}
 
 	if err := s.OTPRepo.CreateOrUpdate(&verification); err != nil {
@@ -194,6 +205,9 @@ func (s *AuthService) VerifyLogin(req dto.LoginVerifyRequest) (string, *models.U
 	if err != nil {
 		return "", nil, err
 	}
+	if user == nil {
+		return "", nil, errors.New("user not found")
+	}
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
@@ -207,13 +221,25 @@ func (s *AuthService) VerifyLogin(req dto.LoginVerifyRequest) (string, *models.U
 
 // -------------------- SET MPIN --------------------
 
-func (s *AuthService) SetMPIN(req dto.SetMPINRequest) error {
-	user, err := s.UserRepo.GetByEmail(req.Email)
-	if err != nil {
+// SetMPIN updates the MPIN of the authenticated user identified by userID. The
+// account is resolved from the JWT rather than from the request body, so a
+// caller can only ever change their own MPIN.
+func (s *AuthService) SetMPIN(userID uint, req dto.SetMPINRequest) error {
+	if userID == 0 {
+		return errors.New("unauthorized")
+	}
+
+	user, err := s.UserRepo.GetByID(userID)
+	if err != nil || user == nil {
 		return errors.New("user not found")
 	}
 
-	user.MPIN = req.MPIN
+	hashed, err := utils.HashMPIN(req.MPIN)
+	if err != nil {
+		return err
+	}
+
+	user.MPIN = hashed
 	return s.UserRepo.Update(user)
 }
 
@@ -221,7 +247,7 @@ func (s *AuthService) SetMPIN(req dto.SetMPINRequest) error {
 
 func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, *models.User, error) {
 	user, err := s.UserRepo.GetByEmail(req.Email)
-	if err != nil {
+	if err != nil || user == nil {
 		return "", nil, errors.New("user not found")
 	}
 
@@ -229,9 +255,38 @@ func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, *models.Use
 		return "", nil, errors.New("MPIN not set for this account")
 	}
 
-	if user.MPIN != req.MPIN {
-		return "", nil, errors.New("Incorrect MPIN")
+	if user.MPINLockedUntil != nil && time.Now().Before(*user.MPINLockedUntil) {
+		remaining := int(time.Until(*user.MPINLockedUntil).Minutes()) + 1
+		return "", nil, fmt.Errorf(
+			"too many incorrect attempts, please try again in %d minute(s) or sign in with an OTP",
+			remaining,
+		)
 	}
+
+	if !utils.CheckMPIN(user.MPIN, req.MPIN) {
+		user.MPINFailedAttempts++
+		if user.MPINFailedAttempts >= maxMPINAttempts {
+			lockedUntil := time.Now().Add(mpinLockoutWindow)
+			user.MPINLockedUntil = &lockedUntil
+			user.MPINFailedAttempts = 0
+		}
+		_ = s.UserRepo.Update(user)
+		return "", nil, errors.New("incorrect MPIN")
+	}
+
+	// Successful login clears any accumulated failures.
+	if user.MPINFailedAttempts != 0 || user.MPINLockedUntil != nil {
+		user.MPINFailedAttempts = 0
+		user.MPINLockedUntil = nil
+	}
+
+	// Transparently upgrade accounts still holding a pre-hashing plaintext MPIN.
+	if !utils.IsHashedMPIN(user.MPIN) {
+		if hashed, hashErr := utils.HashMPIN(req.MPIN); hashErr == nil {
+			user.MPIN = hashed
+		}
+	}
+	_ = s.UserRepo.Update(user)
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {

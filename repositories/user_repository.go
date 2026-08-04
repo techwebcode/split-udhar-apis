@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"split-udhar-apis/models"
+	"split-udhar-apis/utils"
 
 	"gorm.io/gorm"
 )
@@ -38,14 +39,8 @@ func (r *UserRepository) GetByMobile(mobile string) (*models.User, error) {
 
 	var users []models.User
 	cleanMobile := mobile
-	digits := ""
-	for _, ch := range mobile {
-		if ch >= '0' && ch <= '9' {
-			digits += string(ch)
-		}
-	}
-	if len(digits) >= 10 {
-		cleanMobile = digits[len(digits)-10:]
+	if normalized := utils.NormalizeMobile(mobile); len(normalized) == 10 {
+		cleanMobile = normalized
 	}
 
 	err := r.DB.Where("mobile = ? OR RIGHT(mobile, 10) = ?", mobile, cleanMobile).Limit(1).Find(&users).Error
@@ -100,23 +95,4 @@ func (r *UserRepository) DeleteAccount(userID uint) error {
 
 	// 4. Delete user profile & credentials completely (unscoped hard delete)
 	return r.DB.Unscoped().Delete(&user).Error
-}
-
-
-func (r *TransactionRepository) GetTransactionSummary(
-	mobile string,
-) ([]models.Transaction, error) {
-
-	var transactions []models.Transaction
-
-	err := r.DB.
-		Where(
-			"from_mobile = ? OR to_mobile = ?",
-			mobile,
-			mobile,
-		).
-		Order("transaction_date DESC").
-		Find(&transactions).Error
-
-	return transactions, err
 }

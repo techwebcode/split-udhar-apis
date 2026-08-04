@@ -20,8 +20,11 @@ type LoginVerifyRequest struct {
 	OTP   string `json:"otp" binding:"required,len=6"`
 }
 
+// SetMPINRequest sets the MPIN for the *authenticated* caller. Email is accepted
+// for backwards compatibility with older clients but is deliberately ignored:
+// the target account is taken from the JWT, never from the request body.
 type SetMPINRequest struct {
-	Email string `json:"email" binding:"required,email"`
+	Email string `json:"email"`
 	MPIN  string `json:"mpin" binding:"required,len=4,numeric"`
 }
 

@@ -14,6 +14,19 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 	// Public routes
 	AuthRoutes(api.Group("/auth"), db)
 
+	api.GET("/app/version", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"success": true,
+			"data": gin.H{
+				"latest_version":       "1.0.0",
+				"min_required_version": "1.0.0",
+				"update_url":           "https://play.google.com/store/apps/details?id=com.techwebcode.splitudhar",
+				"release_notes":        "Performance improvements, enhanced expense tracking, and group bug fixes.",
+				"force_update":         false,
+			},
+		})
+	})
+
 	// Protected routes
 	protected := api.Group("/")
 	protected.Use(middleware.AuthMiddleware())

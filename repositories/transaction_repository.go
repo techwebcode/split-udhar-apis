@@ -17,6 +17,12 @@ func NewTransactionRepository(db *gorm.DB) *TransactionRepository {
 	}
 }
 
+// WithTx returns a repository bound to tx, so a caller can run several writes
+// inside one database transaction and have them roll back together.
+func (r *TransactionRepository) WithTx(tx *gorm.DB) *TransactionRepository {
+	return &TransactionRepository{DB: tx}
+}
+
 func (r *TransactionRepository) Create(transaction *models.Transaction) error {
 	return r.DB.Create(transaction).Error
 }

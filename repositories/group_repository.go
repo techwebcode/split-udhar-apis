@@ -17,6 +17,12 @@ func NewGroupRepository(db *gorm.DB) *GroupRepository {
 	}
 }
 
+// WithTx returns a repository bound to tx, so a caller can run several writes
+// inside one database transaction and have them roll back together.
+func (r *GroupRepository) WithTx(tx *gorm.DB) *GroupRepository {
+	return &GroupRepository{DB: tx}
+}
+
 func (r *GroupRepository) Create(group *models.Group) error {
 	return r.DB.Create(group).Error
 }

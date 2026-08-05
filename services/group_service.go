@@ -15,6 +15,7 @@ import (
 )
 
 type GroupService struct {
+	db              *gorm.DB
 	groupRepo       *repositories.GroupRepository
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
@@ -23,10 +24,25 @@ type GroupService struct {
 
 func NewGroupService(db *gorm.DB) *GroupService {
 	return &GroupService{
+		db:              db,
 		groupRepo:       repositories.NewGroupRepository(db),
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
 		fcmService:      NewFCMService(db),
+	}
+}
+
+// groupWriteRepos bundles the repositories a mutating group operation needs,
+// all bound to the same database transaction.
+type groupWriteRepos struct {
+	groups       *repositories.GroupRepository
+	transactions *repositories.TransactionRepository
+}
+
+func (s *GroupService) reposFor(tx *gorm.DB) groupWriteRepos {
+	return groupWriteRepos{
+		groups:       s.groupRepo.WithTx(tx),
+		transactions: s.transactionRepo.WithTx(tx),
 	}
 }
 
@@ -103,13 +119,14 @@ func expenseBalanceDeltas(
 // expense was split across, each tagged with the originating expense so it can
 // be cleaned up if that expense is later edited or removed.
 func (s *GroupService) createSplitTransactions(
+	repos groupWriteRepos,
 	group *models.Group,
 	expense *models.GroupExpense,
 	splitMobiles []string,
 	createdBy string,
-) {
+) error {
 	if expense.Amount <= 0 || len(splitMobiles) == 0 {
-		return
+		return nil
 	}
 
 	perPersonShare := expense.Amount / float64(len(splitMobiles))
@@ -139,8 +156,12 @@ func (s *GroupService) createSplitTransactions(
 			TransactionDate: txnDate,
 			CreatedBy:       createdBy,
 		}
-		_ = s.transactionRepo.Create(&txn)
+		if err := repos.transactions.Create(&txn); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // settlementBalanceDeltas returns the balance change for a settlement: the payer
@@ -179,25 +200,35 @@ func balanceDeltasFor(
 	), true
 }
 
-// persistDeltas writes a set of balance changes to the group's members.
-func (s *GroupService) persistDeltas(groupID uint, deltas map[string]float64) {
+// persistDeltas writes a set of balance changes to the group's members. Errors
+// are returned rather than swallowed so the surrounding transaction rolls back
+// instead of leaving balances half-applied.
+func (s *GroupService) persistDeltas(
+	repos groupWriteRepos,
+	groupID uint,
+	deltas map[string]float64,
+) error {
 	for memberMobile, delta := range deltas {
 		if delta == 0 {
 			continue
 		}
-		_ = s.groupRepo.UpdateMemberBalance(groupID, memberMobile, delta)
+		if err := repos.groups.UpdateMemberBalance(groupID, memberMobile, delta); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // applyExpenseBalances persists the deltas from expenseBalanceDeltas.
 func (s *GroupService) applyExpenseBalances(
+	repos groupWriteRepos,
 	groupID uint,
 	payerMobile string,
 	splitMobiles []string,
 	amount float64,
 	sign float64,
-) {
-	s.persistDeltas(groupID, expenseBalanceDeltas(payerMobile, splitMobiles, amount, sign))
+) error {
+	return s.persistDeltas(repos, groupID, expenseBalanceDeltas(payerMobile, splitMobiles, amount, sign))
 }
 
 func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequest) (*models.Group, error) {
@@ -402,12 +433,24 @@ func (s *GroupService) AddGroupExpense(groupID uint, userMobile string, req dto.
 		SplitWith:   strings.Join(splitMobiles, ","),
 		Kind:        models.GroupExpenseKindExpense,
 	}
-	if err := s.groupRepo.CreateExpense(&expense); err != nil {
+	// The expense row, every member balance and the generated ledger rows are
+	// written together: a partial write here would leave balances that no longer
+	// match the recorded expenses.
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		repos := s.reposFor(tx)
+
+		if err := repos.groups.CreateExpense(&expense); err != nil {
+			return err
+		}
+		if err := s.applyExpenseBalances(
+			repos, groupID, payerMobile, splitMobiles, req.Amount, 1,
+		); err != nil {
+			return err
+		}
+		return s.createSplitTransactions(repos, group, &expense, splitMobiles, userMobile)
+	}); err != nil {
 		return err
 	}
-
-	s.applyExpenseBalances(groupID, payerMobile, splitMobiles, req.Amount, 1)
-	s.createSplitTransactions(group, &expense, splitMobiles, userMobile)
 
 	// Dispatch FCM push notifications to all group members except creator
 	go func() {
@@ -493,11 +536,6 @@ func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.Sett
 		}
 	}
 
-	// Payer pays receiver: payer balance increases (+amount), receiver balance decreases (-amount)
-	_ = s.groupRepo.UpdateMemberBalance(groupID, payerMobile, req.Amount)
-	_ = s.groupRepo.UpdateMemberBalance(groupID, receiverMobile, -req.Amount)
-
-	// Record settlement in group expenses log
 	settledAt := time.Now()
 	expense := models.GroupExpense{
 		GroupID:        groupID,
@@ -510,21 +548,42 @@ func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.Sett
 		Kind:           models.GroupExpenseKindSettlement,
 		ReceiverMobile: receiverMobile,
 	}
-	_ = s.groupRepo.CreateExpense(&expense)
 
-	// Record individual settlement transaction
-	txn := models.Transaction{
-		FromMobile:  payerMobile,
-		ToMobile:    receiverMobile,
-		Type:        models.TransactionReceive,
-		Amount:      req.Amount,
-		Note:        "Group Settlement: " + group.Name,
-		ExpenseType: models.ExpenseGroup,
-		GroupID:     &groupID,
-		Status:      models.StatusSettled,
-		CreatedBy:   userMobile,
+	// Both balances, the settlement record and its ledger row are written
+	// together, so a failure can't leave one side of the payment applied.
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		repos := s.reposFor(tx)
+
+		// Payer pays receiver: payer balance increases, receiver's decreases.
+		if err := s.persistDeltas(repos, groupID, settlementBalanceDeltas(
+			payerMobile, receiverMobile, req.Amount, 1,
+		)); err != nil {
+			return err
+		}
+
+		if err := repos.groups.CreateExpense(&expense); err != nil {
+			return err
+		}
+
+		// Record individual settlement transaction, linked to the settlement so
+		// deleting it cleans this row up, and dated so it sorts correctly.
+		txn := models.Transaction{
+			FromMobile:      payerMobile,
+			ToMobile:        receiverMobile,
+			Type:            models.TransactionReceive,
+			Amount:          req.Amount,
+			Note:            "Group Settlement: " + group.Name,
+			ExpenseType:     models.ExpenseGroup,
+			GroupID:         &groupID,
+			GroupExpenseID:  &expense.ID,
+			Status:          models.StatusSettled,
+			TransactionDate: settledAt,
+			CreatedBy:       userMobile,
+		}
+		return repos.transactions.Create(&txn)
+	}); err != nil {
+		return err
 	}
-	_ = s.transactionRepo.Create(&txn)
 
 	// Dispatch FCM notification for Settlement asynchronously
 	go func() {
@@ -579,12 +638,19 @@ func (s *GroupService) DeleteGroupExpense(groupID uint, expenseID uint, userMobi
 	if !ok {
 		return errors.New("this settlement predates receiver tracking and cannot be reverted automatically")
 	}
-	s.persistDeltas(groupID, deltas)
+	// Reverting balances, dropping the generated ledger rows and removing the
+	// expense all happen together or not at all.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		repos := s.reposFor(tx)
 
-	// Drop the personal-ledger rows this expense generated.
-	_ = s.transactionRepo.DeleteByGroupExpense(expenseID)
-
-	return s.groupRepo.DeleteExpense(expenseID)
+		if err := s.persistDeltas(repos, groupID, deltas); err != nil {
+			return err
+		}
+		if err := repos.transactions.DeleteByGroupExpense(expenseID); err != nil {
+			return err
+		}
+		return repos.groups.DeleteExpense(expenseID)
+	})
 }
 
 func (s *GroupService) UpdateGroupExpense(groupID uint, expenseID uint, userMobile string, req dto.UpdateGroupExpenseRequest) error {
@@ -622,35 +688,24 @@ func (s *GroupService) UpdateGroupExpense(groupID uint, expenseID uint, userMobi
 		return errors.New("the payer must be a member of this group")
 	}
 
-	// 1. Revert old expense balances across the original split set
 	splitMobiles := splitMembersFor(group, expense)
-	s.applyExpenseBalances(groupID, expense.PayerMobile, splitMobiles, expense.Amount, -1)
 
-	// 2. Apply new expense info
 	payerName := newPayer
 	payerUser, err := s.userRepo.GetByMobile(newPayer)
 	if err == nil && payerUser != nil {
 		payerName = payerUser.FullName
 	}
 
-	// Record edit log if description or amount changed
+	oldPayerMobile := expense.PayerMobile
+	oldAmount := expense.Amount
+	oldDescription := expense.Description
 	now := time.Now()
-	if expense.Amount != req.Amount || expense.Description != req.Description {
-		editLog := models.GroupExpenseEditLog{
-			ExpenseID:      expense.ID,
-			GroupID:        groupID,
-			OldAmount:      expense.Amount,
-			NewAmount:      req.Amount,
-			OldDescription: expense.Description,
-			NewDescription: req.Description,
-			EditedBy:       userMobile,
-			EditedAt:       now,
-		}
-		_ = s.groupRepo.CreateExpenseEditLog(&editLog)
+	descriptionOrAmountChanged := oldAmount != req.Amount || oldDescription != req.Description
 
+	if descriptionOrAmountChanged {
 		expense.IsEdited = true
-		expense.PreviousAmount = expense.Amount
-		expense.PreviousDesc = expense.Description
+		expense.PreviousAmount = oldAmount
+		expense.PreviousDesc = oldDescription
 		expense.EditedAt = &now
 	}
 
@@ -659,18 +714,53 @@ func (s *GroupService) UpdateGroupExpense(groupID uint, expenseID uint, userMobi
 	expense.PayerMobile = newPayer
 	expense.PayerName = payerName
 
-	// 3. Re-apply across the same split set the expense was created with
-	s.applyExpenseBalances(groupID, newPayer, splitMobiles, req.Amount, 1)
+	// An edit is a revert plus a re-apply. Splitting that across two commits is
+	// what would leave balances reverted but never re-applied, so it all runs in
+	// a single transaction.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		repos := s.reposFor(tx)
 
-	if err := s.groupRepo.UpdateExpense(expense); err != nil {
-		return err
-	}
+		// 1. Revert the old expense across its original split set
+		if err := s.applyExpenseBalances(
+			repos, groupID, oldPayerMobile, splitMobiles, oldAmount, -1,
+		); err != nil {
+			return err
+		}
 
-	// Rebuild the personal-ledger rows so they reflect the new amount and payer.
-	_ = s.transactionRepo.DeleteByGroupExpense(expenseID)
-	s.createSplitTransactions(group, expense, splitMobiles, userMobile)
+		// 2. Record the edit log
+		if descriptionOrAmountChanged {
+			editLog := models.GroupExpenseEditLog{
+				ExpenseID:      expense.ID,
+				GroupID:        groupID,
+				OldAmount:      oldAmount,
+				NewAmount:      req.Amount,
+				OldDescription: oldDescription,
+				NewDescription: req.Description,
+				EditedBy:       userMobile,
+				EditedAt:       now,
+			}
+			if err := repos.groups.CreateExpenseEditLog(&editLog); err != nil {
+				return err
+			}
+		}
 
-	return nil
+		// 3. Re-apply across the same split set the expense was created with
+		if err := s.applyExpenseBalances(
+			repos, groupID, newPayer, splitMobiles, req.Amount, 1,
+		); err != nil {
+			return err
+		}
+
+		if err := repos.groups.UpdateExpense(expense); err != nil {
+			return err
+		}
+
+		// Rebuild the personal-ledger rows so they reflect the new amount and payer.
+		if err := repos.transactions.DeleteByGroupExpense(expenseID); err != nil {
+			return err
+		}
+		return s.createSplitTransactions(repos, group, expense, splitMobiles, userMobile)
+	})
 }
 
 func (s *GroupService) GetGroupExpenseEditHistory(expenseID uint) ([]models.GroupExpenseEditLog, error) {
@@ -750,6 +840,7 @@ func (s *GroupService) RecomputeGroupBalances(apply bool) (*GroupRecomputeReport
 			continue
 		}
 
+		corrections := make(map[string]float64)
 		for _, m := range group.Members {
 			want := expected[m.UserMobile]
 			if math.Abs(want-m.Balance) < 0.005 {
@@ -763,14 +854,25 @@ func (s *GroupService) RecomputeGroupBalances(apply bool) (*GroupRecomputeReport
 				Stored:     m.Balance,
 				Expected:   want,
 			})
+			corrections[m.UserMobile] = want
+		}
 
-			if apply {
-				if err := s.groupRepo.SetMemberBalance(group.ID, m.UserMobile, want); err != nil {
-					return report, fmt.Errorf(
-						"group %d member %s: %w", group.ID, m.UserMobile, err,
-					)
+		if !apply || len(corrections) == 0 {
+			continue
+		}
+
+		// Correct a group's balances all at once: a partial correction would
+		// leave it further from the ledger than before.
+		if err := s.db.Transaction(func(tx *gorm.DB) error {
+			repo := s.groupRepo.WithTx(tx)
+			for mobile, want := range corrections {
+				if err := repo.SetMemberBalance(group.ID, mobile, want); err != nil {
+					return fmt.Errorf("member %s: %w", mobile, err)
 				}
 			}
+			return nil
+		}); err != nil {
+			return report, fmt.Errorf("group %d: %w", group.ID, err)
 		}
 	}
 

@@ -135,6 +135,15 @@ func (r *GroupRepository) GetExpenseEditLogs(expenseID uint) ([]models.GroupExpe
 	return logs, err
 }
 
+func (r *GroupRepository) UpdateGroupDetails(groupID uint, name, description string) error {
+	return r.DB.Model(&models.Group{}).
+		Where("id = ?", groupID).
+		Updates(map[string]interface{}{
+			"name":        name,
+			"description": description,
+		}).Error
+}
+
 func (r *GroupRepository) Delete(id uint) error {
 	return r.DB.Select("Members", "Expenses").Delete(&models.Group{Model: gorm.Model{ID: id}}).Error
 }

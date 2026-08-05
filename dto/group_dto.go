@@ -30,3 +30,8 @@ type UpdateGroupExpenseRequest struct {
 	Amount      float64 `json:"amount" binding:"required,gt=0"`
 	PayerMobile string  `json:"payer_mobile"`
 }
+
+type UpdateGroupRequest struct {
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+}

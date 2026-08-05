@@ -17,6 +17,7 @@ func GroupRoutes(router *gin.RouterGroup, db *gorm.DB) {
 		groups.POST("", controller.Create)
 		groups.GET("", controller.GetUserGroups)
 		groups.GET("/:id", controller.GetGroupDetails)
+		groups.PUT("/:id", controller.UpdateGroup)
 		groups.DELETE("/:id", controller.DeleteGroup)
 		groups.POST("/:id/expenses", controller.AddExpense)
 		groups.PUT("/:id/expenses/:expense_id", controller.UpdateExpense)

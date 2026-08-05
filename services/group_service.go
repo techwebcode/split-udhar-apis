@@ -280,6 +280,29 @@ func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequ
 		return nil, err
 	}
 
+	// Dispatch FCM push notifications to all added group members except creator
+	go func() {
+		var recipientMobiles []string
+		for _, m := range members {
+			if !utils.SameMobile(m.UserMobile, creatorMobile) {
+				recipientMobiles = append(recipientMobiles, m.UserMobile)
+			}
+		}
+
+		if len(recipientMobiles) > 0 {
+			title := "Added to Group 👥"
+			body := fmt.Sprintf("%s added you to group '%s'", creatorName, group.Name)
+
+			data := map[string]string{
+				"type":       "group",
+				"group_id":   fmt.Sprintf("%d", group.ID),
+				"group_name": group.Name,
+			}
+
+			_ = s.fcmService.SendNotificationToUsers(recipientMobiles, title, body, data)
+		}
+	}()
+
 	return &group, nil
 }
 
@@ -877,4 +900,21 @@ func (s *GroupService) RecomputeGroupBalances(apply bool) (*GroupRecomputeReport
 	}
 
 	return report, nil
+}
+
+func (s *GroupService) UpdateGroup(groupID uint, userMobile string, req dto.UpdateGroupRequest) error {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return errors.New("group not found")
+	}
+
+	if !isGroupMember(group, userMobile) {
+		return errors.New("unauthorized to update group")
+	}
+
+	if req.Name == "" {
+		return errors.New("group name cannot be empty")
+	}
+
+	return s.groupRepo.UpdateGroupDetails(groupID, req.Name, req.Description)
 }

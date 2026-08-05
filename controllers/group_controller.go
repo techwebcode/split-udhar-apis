@@ -327,3 +327,39 @@ func (g *GroupController) GetExpenseEditLogs(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": logs})
 }
+
+func (g *GroupController) UpdateGroup(c *gin.Context) {
+	idParam := c.Param("id")
+	groupID, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid group ID",
+		})
+		return
+	}
+
+	var req dto.UpdateGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = g.Service.UpdateGroup(uint(groupID), userMobile, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Group details updated successfully",
+	})
+}

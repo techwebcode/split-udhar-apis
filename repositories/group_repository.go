@@ -58,7 +58,7 @@ func (r *GroupRepository) GetUserGroups(userMobile string) ([]models.Group, erro
 
 func (r *GroupRepository) GetByID(id uint) (*models.Group, error) {
 	var group models.Group
-	err := r.DB.Preload("Members").Preload("Expenses", func(db *gorm.DB) *gorm.DB {
+	err := r.DB.Unscoped().Preload("Members").Preload("Expenses", func(db *gorm.DB) *gorm.DB {
 		return db.Order("created_at DESC")
 	}).First(&group, id).Error
 

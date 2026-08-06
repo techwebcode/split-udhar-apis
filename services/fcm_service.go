@@ -76,6 +76,7 @@ func (s *FCMService) SendNotificationToUser(targetMobile string, title, body str
 		log.Printf("[FCM SERVICE] No registered FCM device tokens found for mobile '%s' (UserID: %d)", targetMobile, userID)
 		return nil
 	}
+	tokens = deduplicateTokens(tokens)
 
 	invalidTokens, err := utils.SendMulticastFCM(tokens, title, body, data)
 	if len(invalidTokens) > 0 {
@@ -95,6 +96,7 @@ func (s *FCMService) SendNotificationToUsers(targetMobiles []string, title, body
 		log.Printf("[FCM SERVICE] No registered FCM device tokens found for %d users", len(targetMobiles))
 		return nil
 	}
+	tokens = deduplicateTokens(tokens)
 
 	invalidTokens, err := utils.SendMulticastFCM(tokens, title, body, data)
 	if len(invalidTokens) > 0 {
@@ -142,6 +144,7 @@ func (s *FCMService) SendTestNotification(userMobile string, userID uint, req dt
 		log.Printf("[FCM SERVICE] No registered device tokens found for mobile '%s', UserID %d", userMobile, userID)
 		return 0, nil
 	}
+	tokens = deduplicateTokens(tokens)
 	log.Printf("[FCM SERVICE] Found %d token(s) for user '%s' (UserID %d): %v", len(tokens), userMobile, userID, tokens)
 
 	invalidTokens, err := utils.SendMulticastFCM(tokens, title, body, data)
@@ -150,4 +153,16 @@ func (s *FCMService) SendTestNotification(userMobile string, userID uint, req dt
 	}
 
 	return len(tokens) - len(invalidTokens), err
+}
+
+func deduplicateTokens(tokens []string) []string {
+	seen := make(map[string]bool)
+	var deduped []string
+	for _, token := range tokens {
+		if token != "" && !seen[token] {
+			seen[token] = true
+			deduped = append(deduped, token)
+		}
+	}
+	return deduped
 }

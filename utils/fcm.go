@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -124,7 +125,10 @@ func SendFCMNotification(token, title, body string, data map[string]string) (boo
 		},
 	}
 
-	_, err := client.Send(context.Background(), msg)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := client.Send(ctx, msg)
 	if err != nil {
 		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
 			log.Printf("⚠️ FCM Stale Token Detected for token '%s...': %v", token[:min(10, len(token))], err)
@@ -179,7 +183,10 @@ func SendMulticastFCM(tokens []string, title, body string, data map[string]strin
 		},
 	}
 
-	br, err := client.SendEachForMulticast(context.Background(), multicastMsg)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	br, err := client.SendEachForMulticast(ctx, multicastMsg)
 	if err != nil {
 		log.Printf("❌ FCM Multicast Error: %v", err)
 		return nil, err
@@ -254,7 +261,9 @@ func sendLegacyHTTPNotification(tokens []string, title, body string, data map[st
 	req.Header.Set("Authorization", "key="+serverKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("❌ FCM Legacy Dispatch Error: %v", err)

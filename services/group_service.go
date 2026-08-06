@@ -320,6 +320,10 @@ func (s *GroupService) GetGroupDetails(groupID uint, userMobile string) (*models
 		return nil, errors.New("unauthorized access to group")
 	}
 
+	if group.DeletedAt.Valid {
+		group.IsArchived = true
+	}
+
 	return group, nil
 }
 

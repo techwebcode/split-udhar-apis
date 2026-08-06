@@ -13,6 +13,9 @@ type Group struct {
 	CreatedBy   string         `gorm:"size:15;not null;index" json:"created_by"`
 	Members     []GroupMember  `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE" json:"members"`
 	Expenses    []GroupExpense `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE" json:"expenses"`
+
+	// IsArchived is a transient field used to signal to the client that the group is soft-deleted.
+	IsArchived bool `gorm:"-" json:"is_archived"`
 }
 
 type GroupMember struct {

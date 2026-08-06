@@ -396,7 +396,7 @@ func (s *TransactionService) GetTransactionHistory(
 	}
 
 	for _, transaction := range transactions {
-		if transaction.IsDeleted {
+		if transaction.IsDeleted || transaction.IsArchived {
 			continue
 		}
 		if utils.SameMobile(transaction.FromMobile, userMobile) {

@@ -308,7 +308,7 @@ func (s *TransactionService) GetTransactionSummary(
 
 	for _, transaction := range transactions {
 
-		if transaction.IsDeleted {
+		if transaction.IsDeleted || transaction.IsArchived {
 			continue
 		}
 

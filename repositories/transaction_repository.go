@@ -116,7 +116,7 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 	u10 := extractTenDigits(mobile)
 
 	err = r.DB.
-		Select("transactions.*").
+		Select("transactions.*, CASE WHEN `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
 		Joins("LEFT JOIN `groups` ON transactions.group_id = `groups`.id").
 		Where("`groups`.deleted_at IS NULL OR transactions.group_id IS NULL").
 		Where(
@@ -132,7 +132,7 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 	contactBalances := make(map[string]float64)
 
 	for _, transaction := range transactions {
-		if transaction.IsDeleted {
+		if transaction.IsDeleted || transaction.IsArchived {
 			continue
 		}
 		count++

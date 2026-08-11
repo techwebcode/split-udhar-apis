@@ -103,18 +103,13 @@ func (s *AuthService) GoogleAuth(idToken string) (*GoogleAuthResult, error) {
 		}
 
 		if existingUser != nil {
-			// An account with this email already exists
-			if existingUser.GoogleID == "" && existingUser.AuthProvider == "google" {
-				// Link legacy Google user
+			// Account exists with this email -> Link GoogleID to existing account if not set
+			if existingUser.GoogleID != googleID {
 				existingUser.GoogleID = googleID
+				existingUser.IsVerified = true
 				_ = s.UserRepo.Update(existingUser)
-				user = existingUser
-			} else if existingUser.GoogleID == googleID {
-				user = existingUser
-			} else {
-				// Account exists via Email + MPIN, but Google is NOT linked
-				return nil, errors.New("ACCOUNT_NOT_LINKED: An account with this email address already exists. Please sign in using your Email and MPIN.")
 			}
+			user = existingUser
 		} else {
 			// 3. Auto-register new Google user
 			fullName := strings.TrimSpace(info.Name)

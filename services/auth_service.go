@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
@@ -54,11 +56,13 @@ type GoogleTokenInfo struct {
 }
 
 type GoogleAuthResult struct {
-	Token        string       `json:"token"`
-	RefreshToken string       `json:"refresh_token"`
-	IsNewUser    bool         `json:"is_new_user"`
-	HasMPIN      bool         `json:"has_mpin"`
-	User         *models.User `json:"user"`
+	ProfileComplete bool         `json:"profile_complete"`
+	Token           string       `json:"token,omitempty"`
+	RefreshToken    string       `json:"refresh_token,omitempty"`
+	Email           string       `json:"email"`
+	FullName        string       `json:"full_name"`
+	GoogleID        string       `json:"google_id"`
+	User            *models.User `json:"user,omitempty"`
 }
 
 func (s *AuthService) GoogleAuth(idToken string) (*GoogleAuthResult, error) {
@@ -88,81 +92,136 @@ func (s *AuthService) GoogleAuth(idToken string) (*GoogleAuthResult, error) {
 
 	email := strings.ToLower(strings.TrimSpace(info.Email))
 	googleID := strings.TrimSpace(info.Sub)
+	fullName := strings.TrimSpace(info.Name)
+	if fullName == "" {
+		fullName = strings.Split(email, "@")[0]
+	}
 
-	// 1. Check if user exists by GoogleID
+	// 1. Check if user exists by GoogleID or Email
 	var user *models.User
 	if googleID != "" {
 		user, _ = s.UserRepo.GetByGoogleID(googleID)
 	}
 
-	// 2. If user not found by GoogleID, check by email
 	if user == nil {
 		existingUser, err := s.UserRepo.GetByEmail(email)
-		if err != nil {
-			return nil, fmt.Errorf("database query error: %v", err)
+		if err == nil && existingUser != nil {
+			user = existingUser
+		}
+	}
+
+	if user != nil {
+		// Auto-link GoogleID if missing
+		if user.GoogleID == "" {
+			user.GoogleID = googleID
+			user.IsVerified = true
+			_ = s.UserRepo.Update(user)
 		}
 
-		if existingUser != nil {
-			// Account exists with this email -> Link GoogleID to existing account if not set
-			if existingUser.GoogleID != googleID {
-				existingUser.GoogleID = googleID
-				existingUser.IsVerified = true
-				_ = s.UserRepo.Update(existingUser)
-			}
-			user = existingUser
-		} else {
-			// 3. Auto-register new Google user
-			fullName := strings.TrimSpace(info.Name)
-			if fullName == "" {
-				fullName = strings.Split(email, "@")[0]
-			}
+		// Check if profile is complete (needs valid mobile AND mpin)
+		isComplete := strings.TrimSpace(user.Mobile) != "" &&
+			strings.TrimSpace(user.Mobile) != "0000000000" &&
+			strings.TrimSpace(user.MPIN) != ""
 
-			newUser := models.User{
-				FullName:     fullName,
-				Email:        email,
-				GoogleID:     googleID,
-				AuthProvider: "google",
-				IsVerified:   true,
-				Mobile:       "",
-			}
-
-			if err := s.UserRepo.Create(&newUser); err != nil {
-				return nil, fmt.Errorf("failed to create user profile: %v", err)
-			}
-
-			token, err := utils.GenerateToken(newUser.ID, newUser.Email, newUser.Mobile)
+		if isComplete {
+			token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate authentication token: %v", err)
 			}
-
-			refreshToken, _ := utils.GenerateToken(newUser.ID, newUser.Email, newUser.Mobile)
+			refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 
 			return &GoogleAuthResult{
-				Token:        token,
-				RefreshToken: refreshToken,
-				IsNewUser:    true,
-				HasMPIN:      false,
-				User:         &newUser,
+				ProfileComplete: true,
+				Token:           token,
+				RefreshToken:    refreshToken,
+				Email:           user.Email,
+				FullName:        user.FullName,
+				GoogleID:        googleID,
+				User:            user,
 			}, nil
 		}
+
+		// Account exists but profile is incomplete
+		return &GoogleAuthResult{
+			ProfileComplete: false,
+			Email:           user.Email,
+			FullName:        user.FullName,
+			GoogleID:        googleID,
+			User:            user,
+		}, nil
 	}
 
-	// Existing Google user session
+	// New Google user (identity verified, profile incomplete)
+	return &GoogleAuthResult{
+		ProfileComplete: false,
+		Email:           email,
+		FullName:        fullName,
+		GoogleID:        googleID,
+	}, nil
+}
+
+func (s *AuthService) CompleteGoogleSignup(req dto.CompleteGoogleSignupRequest) (string, string, *models.User, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	googleID := strings.TrimSpace(req.GoogleID)
+	fullName := strings.TrimSpace(req.FullName)
+	mobile := strings.TrimSpace(req.Mobile)
+	mpin := strings.TrimSpace(req.MPIN)
+
+	if email == "" || googleID == "" || fullName == "" || len(mobile) != 10 || len(mpin) != 4 {
+		return "", "", nil, errors.New("all fields (name, email, mobile, 4-digit mpin) are required")
+	}
+
+	// Hash MPIN
+	hashedMPIN, err := bcrypt.GenerateFromPassword([]byte(mpin), bcrypt.DefaultCost)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("failed to process MPIN: %v", err)
+	}
+
+	var user *models.User
+	if googleID != "" {
+		user, _ = s.UserRepo.GetByGoogleID(googleID)
+	}
+	if user == nil {
+		user, _ = s.UserRepo.GetByEmail(email)
+	}
+
+	if user != nil {
+		user.FullName = fullName
+		user.Mobile = mobile
+		user.GoogleID = googleID
+		user.AuthProvider = "google"
+		user.IsVerified = true
+		user.MPIN = string(hashedMPIN)
+		user.MPINFailedAttempts = 0
+		user.MPINLockedUntil = nil
+
+		if err := s.UserRepo.Update(user); err != nil {
+			return "", "", nil, fmt.Errorf("failed to update user profile: %v", err)
+		}
+	} else {
+		newUser := models.User{
+			FullName:     fullName,
+			Email:        email,
+			Mobile:       mobile,
+			GoogleID:     googleID,
+			AuthProvider: "google",
+			IsVerified:   true,
+			MPIN:         string(hashedMPIN),
+		}
+
+		if err := s.UserRepo.Create(&newUser); err != nil {
+			return "", "", nil, fmt.Errorf("failed to create user profile: %v", err)
+		}
+		user = &newUser
+	}
+
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate authentication token: %v", err)
+		return "", "", nil, fmt.Errorf("failed to generate token: %v", err)
 	}
 	refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 
-	hasMPIN := strings.TrimSpace(user.MPIN) != ""
-
-	return &GoogleAuthResult{
-		Token:        token,
-		RefreshToken: refreshToken,
-		IsNewUser:    false,
-		HasMPIN:      hasMPIN,
-		User:         user,
-	}, nil
+	return token, refreshToken, user, nil
 }
 
 // -------------------- CHECK EMAIL --------------------

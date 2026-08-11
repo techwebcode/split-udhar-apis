@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -61,15 +60,38 @@ func (a *AuthController) GoogleAuth(c *gin.Context) {
 
 	result, err := a.Service.GoogleAuth(req.IDToken)
 	if err != nil {
-		if strings.Contains(err.Error(), "ACCOUNT_NOT_LINKED") {
-			c.JSON(http.StatusConflict, gin.H{
-				"success": false,
-				"code":    "ACCOUNT_NOT_LINKED",
-				"message": "An account with this email address already exists. Please sign in using your Email and MPIN.",
-			})
-			return
-		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 
+	c.JSON(http.StatusOK, gin.H{
+		"success":          true,
+		"profile_complete": result.ProfileComplete,
+		"token":            result.Token,
+		"refresh_token":    result.RefreshToken,
+		"email":            result.Email,
+		"full_name":        result.FullName,
+		"google_id":        result.GoogleID,
+		"user":             result.User,
+	})
+}
+
+func (a *AuthController) CompleteGoogleSignup(c *gin.Context) {
+	var req dto.CompleteGoogleSignupRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	token, refreshToken, user, err := a.Service.CompleteGoogleSignup(req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -79,11 +101,9 @@ func (a *AuthController) GoogleAuth(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
-		"token":         result.Token,
-		"refresh_token": result.RefreshToken,
-		"is_new_user":   result.IsNewUser,
-		"has_mpin":      result.HasMPIN,
-		"user":          result.User,
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 

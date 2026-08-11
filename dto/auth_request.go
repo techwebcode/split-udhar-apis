@@ -14,6 +14,14 @@ type GoogleAuthRequest struct {
 	IDToken string `json:"id_token" binding:"required"`
 }
 
+type CompleteGoogleSignupRequest struct {
+	GoogleID string `json:"google_id" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	FullName string `json:"full_name" binding:"required"`
+	Mobile   string `json:"mobile" binding:"required,len=10,numeric"`
+	MPIN     string `json:"mpin" binding:"required,len=4,numeric"`
+}
+
 type SignupVerifyRequest struct {
 	Email string `json:"email" binding:"required,email"`
 	OTP   string `json:"otp" binding:"required,len=6"`

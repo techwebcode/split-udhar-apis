@@ -14,6 +14,7 @@ func AuthRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	router.POST("/check-email", auth.CheckEmail)
 	router.POST("/google", auth.GoogleAuth)
+	router.POST("/google/complete", auth.CompleteGoogleSignup)
 
 	router.POST("/signup", auth.Signup)
 

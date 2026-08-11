@@ -1,8 +1,10 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -38,6 +40,149 @@ func NewAuthService(db *gorm.DB) *AuthService {
 		PendingRepo:  repositories.NewPendingUserRepository(db),
 		EmailService: NewEmailService(),
 	}
+}
+
+// -------------------- GOOGLE AUTH --------------------
+
+type GoogleTokenInfo struct {
+	Email         string `json:"email"`
+	EmailVerified string `json:"email_verified"`
+	Name          string `json:"name"`
+	Sub           string `json:"sub"`
+	Audience      string `json:"aud"`
+	Error         string `json:"error_description"`
+}
+
+type GoogleAuthResult struct {
+	Token        string       `json:"token"`
+	RefreshToken string       `json:"refresh_token"`
+	IsNewUser    bool         `json:"is_new_user"`
+	HasMPIN      bool         `json:"has_mpin"`
+	User         *models.User `json:"user"`
+}
+
+func (s *AuthService) GoogleAuth(idToken string) (*GoogleAuthResult, error) {
+	idToken = strings.TrimSpace(idToken)
+	if idToken == "" {
+		return nil, errors.New("google id_token is required")
+	}
+
+	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken)
+	if err != nil {
+		return nil, errors.New("failed to verify google token with identity provider")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid or expired google token")
+	}
+
+	var info GoogleTokenInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, errors.New("failed to parse google token claims")
+	}
+
+	if info.Email == "" {
+		return nil, errors.New("google token does not contain a valid email")
+	}
+
+	email := strings.ToLower(strings.TrimSpace(info.Email))
+	googleID := strings.TrimSpace(info.Sub)
+
+	// 1. Check if user exists by GoogleID
+	var user *models.User
+	if googleID != "" {
+		user, _ = s.UserRepo.GetByGoogleID(googleID)
+	}
+
+	// 2. If user not found by GoogleID, check by email
+	if user == nil {
+		existingUser, err := s.UserRepo.GetByEmail(email)
+		if err != nil {
+			return nil, fmt.Errorf("database query error: %v", err)
+		}
+
+		if existingUser != nil {
+			// An account with this email already exists
+			if existingUser.GoogleID == "" && existingUser.AuthProvider == "google" {
+				// Link legacy Google user
+				existingUser.GoogleID = googleID
+				_ = s.UserRepo.Update(existingUser)
+				user = existingUser
+			} else if existingUser.GoogleID == googleID {
+				user = existingUser
+			} else {
+				// Account exists via Email + MPIN, but Google is NOT linked
+				return nil, errors.New("ACCOUNT_NOT_LINKED: An account with this email address already exists. Please sign in using your Email and MPIN.")
+			}
+		} else {
+			// 3. Auto-register new Google user
+			fullName := strings.TrimSpace(info.Name)
+			if fullName == "" {
+				fullName = strings.Split(email, "@")[0]
+			}
+
+			newUser := models.User{
+				FullName:     fullName,
+				Email:        email,
+				GoogleID:     googleID,
+				AuthProvider: "google",
+				IsVerified:   true,
+				Mobile:       "",
+			}
+
+			if err := s.UserRepo.Create(&newUser); err != nil {
+				return nil, fmt.Errorf("failed to create user profile: %v", err)
+			}
+
+			token, err := utils.GenerateToken(newUser.ID, newUser.Email, newUser.Mobile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate authentication token: %v", err)
+			}
+
+			refreshToken, _ := utils.GenerateToken(newUser.ID, newUser.Email, newUser.Mobile)
+
+			return &GoogleAuthResult{
+				Token:        token,
+				RefreshToken: refreshToken,
+				IsNewUser:    true,
+				HasMPIN:      false,
+				User:         &newUser,
+			}, nil
+		}
+	}
+
+	// Existing Google user session
+	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate authentication token: %v", err)
+	}
+	refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
+
+	hasMPIN := strings.TrimSpace(user.MPIN) != ""
+
+	return &GoogleAuthResult{
+		Token:        token,
+		RefreshToken: refreshToken,
+		IsNewUser:    false,
+		HasMPIN:      hasMPIN,
+		User:         user,
+	}, nil
+}
+
+// -------------------- CHECK EMAIL --------------------
+
+func (s *AuthService) CheckEmail(email string) (bool, error) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return false, errors.New("email is required")
+	}
+
+	existingUser, err := s.UserRepo.GetByEmail(normalized)
+	if err == nil && existingUser != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 // -------------------- SIGNUP --------------------

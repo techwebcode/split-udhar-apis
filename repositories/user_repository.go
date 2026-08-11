@@ -32,6 +32,21 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	return &users[0], nil
 }
 
+func (r *UserRepository) GetByGoogleID(googleID string) (*models.User, error) {
+	if googleID == "" {
+		return nil, nil
+	}
+	var users []models.User
+	err := r.DB.Where("google_id = ?", googleID).Limit(1).Find(&users).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return nil, nil
+	}
+	return &users[0], nil
+}
+
 func (r *UserRepository) GetByMobile(mobile string) (*models.User, error) {
 	if mobile == "" {
 		return nil, nil

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -18,6 +19,72 @@ func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{
 		Service: services.NewAuthService(db),
 	}
+}
+
+func (a *AuthController) CheckEmail(c *gin.Context) {
+	var req dto.CheckEmailRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Please enter a valid email address",
+		})
+		return
+	}
+
+	exists, err := a.Service.CheckEmail(req.Email)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"exists":  exists,
+		"message": "Email status retrieved",
+	})
+}
+
+func (a *AuthController) GoogleAuth(c *gin.Context) {
+	var req dto.GoogleAuthRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	result, err := a.Service.GoogleAuth(req.IDToken)
+	if err != nil {
+		if strings.Contains(err.Error(), "ACCOUNT_NOT_LINKED") {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"code":    "ACCOUNT_NOT_LINKED",
+				"message": "An account with this email address already exists. Please sign in using your Email and MPIN.",
+			})
+			return
+		}
+
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"token":         result.Token,
+		"refresh_token": result.RefreshToken,
+		"is_new_user":   result.IsNewUser,
+		"has_mpin":      result.HasMPIN,
+		"user":          result.User,
+	})
 }
 
 func (a *AuthController) Signup(c *gin.Context) {

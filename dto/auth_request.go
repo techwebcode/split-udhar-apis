@@ -6,6 +6,14 @@ type SignupRequest struct {
 	Mobile   string `json:"mobile" binding:"required,len=10,numeric"`
 }
 
+type CheckEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type GoogleAuthRequest struct {
+	IDToken string `json:"id_token" binding:"required"`
+}
+
 type SignupVerifyRequest struct {
 	Email string `json:"email" binding:"required,email"`
 	OTP   string `json:"otp" binding:"required,len=6"`

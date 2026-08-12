@@ -290,11 +290,11 @@ func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequ
 		}
 
 		if len(recipientMobiles) > 0 {
-			title := "Added to Group 👥"
-			body := fmt.Sprintf("%s added you to group '%s'", creatorName, group.Name)
+			title := "You've been added to a group"
+			body := fmt.Sprintf("%s added you to the group %s.", creatorName, group.Name)
 
 			data := map[string]string{
-				"type":       "group",
+				"type":       "group_added",
 				"group_id":   fmt.Sprintf("%d", group.ID),
 				"group_name": group.Name,
 			}
@@ -362,7 +362,30 @@ func (s *GroupService) AddMember(groupID uint, requesterMobile string, memberReq
 		Balance:    0,
 	}
 
-	return s.groupRepo.AddMember(&member)
+	if err := s.groupRepo.AddMember(&member); err != nil {
+		return err
+	}
+
+	// Dispatch FCM push notification to the newly added member asynchronously
+	go func() {
+		adderName := requesterMobile
+		if adderUser, err := s.userRepo.GetByMobile(requesterMobile); err == nil && adderUser != nil && adderUser.FullName != "" {
+			adderName = adderUser.FullName
+		}
+
+		title := "You've been added to a group"
+		body := fmt.Sprintf("%s added you to the group %s.", adderName, group.Name)
+
+		data := map[string]string{
+			"type":       "group_added",
+			"group_id":   fmt.Sprintf("%d", groupID),
+			"group_name": group.Name,
+		}
+
+		_ = s.fcmService.SendNotificationToUser(memberReq.Mobile, title, body, data)
+	}()
+
+	return nil
 }
 
 func (s *GroupService) RemoveMember(groupID uint, requesterMobile string, targetMobile string) error {

@@ -30,6 +30,7 @@ func AuthRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	// MPIN verification is itself a login mechanism, so it stays public.
 	router.POST("/mpin/verify", auth.VerifyMPIN)
+	router.POST("/refresh", auth.RefreshToken)
 
 	// Setting an MPIN requires an existing session. Without this an attacker
 	// could set the MPIN of any account by email and then log in with it.

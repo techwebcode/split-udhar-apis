@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"split-udhar-apis/dto"
@@ -285,22 +287,22 @@ func (s *AuthService) Signup(req dto.SignupRequest) error {
 
 // -------------------- VERIFY SIGNUP --------------------
 
-func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, *models.User, error) {
+func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, string, *models.User, error) {
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.OTP = strings.TrimSpace(req.OTP)
 
 	record, err := s.OTPRepo.Get(req.Email, "signup", req.OTP)
 	if err != nil {
-		return "", nil, errors.New("invalid otp")
+		return "", "", nil, errors.New("invalid otp")
 	}
 
 	if time.Now().After(record.ExpiresAt) {
-		return "", nil, errors.New("otp expired")
+		return "", "", nil, errors.New("otp expired")
 	}
 
 	pending, err := s.PendingRepo.GetByEmail(req.Email)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 
 	user := models.User{
@@ -311,18 +313,19 @@ func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, *models
 	}
 
 	if err := s.UserRepo.Create(&user); err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
+	refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 
 	_ = s.OTPRepo.Delete(record.ID)
 	_ = s.PendingRepo.Delete(pending.ID)
 
-	return token, &user, nil
+	return token, refreshToken, &user, nil
 }
 
 // -------------------- LOGIN --------------------
@@ -389,33 +392,34 @@ func (s *AuthService) SendForgotPasscodeOTP(email string) error {
 
 // -------------------- VERIFY LOGIN --------------------
 
-func (s *AuthService) VerifyLogin(req dto.LoginVerifyRequest) (string, *models.User, error) {
+func (s *AuthService) VerifyLogin(req dto.LoginVerifyRequest) (string, string, *models.User, error) {
 
 	record, err := s.OTPRepo.Get(req.Email, "login", req.OTP)
 	if err != nil {
-		return "", nil, errors.New("invalid otp")
+		return "", "", nil, errors.New("invalid otp")
 	}
 
 	if time.Now().After(record.ExpiresAt) {
-		return "", nil, errors.New("otp expired")
+		return "", "", nil, errors.New("otp expired")
 	}
 
 	user, err := s.UserRepo.GetByEmail(req.Email)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	if user == nil {
-		return "", nil, errors.New("user not found")
+		return "", "", nil, errors.New("user not found")
 	}
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
+	refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 
 	_ = s.OTPRepo.Delete(record.ID)
 
-	return token, user, nil
+	return token, refreshToken, user, nil
 }
 
 // -------------------- SET MPIN --------------------
@@ -444,19 +448,19 @@ func (s *AuthService) SetMPIN(userID uint, req dto.SetMPINRequest) error {
 
 // -------------------- VERIFY MPIN --------------------
 
-func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, *models.User, error) {
+func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, string, *models.User, error) {
 	user, err := s.UserRepo.GetByEmail(req.Email)
 	if err != nil || user == nil {
-		return "", nil, errors.New("user not found")
+		return "", "", nil, errors.New("user not found")
 	}
 
 	if user.MPIN == "" {
-		return "", nil, errors.New("MPIN not set for this account")
+		return "", "", nil, errors.New("MPIN not set for this account")
 	}
 
 	if user.MPINLockedUntil != nil && time.Now().Before(*user.MPINLockedUntil) {
 		remaining := int(time.Until(*user.MPINLockedUntil).Minutes()) + 1
-		return "", nil, fmt.Errorf(
+		return "", "", nil, fmt.Errorf(
 			"too many incorrect attempts, please try again in %d minute(s) or sign in with an OTP",
 			remaining,
 		)
@@ -470,7 +474,7 @@ func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, *models.Use
 			user.MPINFailedAttempts = 0
 		}
 		_ = s.UserRepo.Update(user)
-		return "", nil, errors.New("incorrect MPIN")
+		return "", "", nil, errors.New("incorrect MPIN")
 	}
 
 	// Successful login clears any accumulated failures.
@@ -489,8 +493,47 @@ func (s *AuthService) VerifyMPIN(req dto.VerifyMPINRequest) (string, *models.Use
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
+	}
+	refreshToken, _ := utils.GenerateToken(user.ID, user.Email, user.Mobile)
+
+	return token, refreshToken, user, nil
+}
+
+// -------------------- REFRESH TOKEN --------------------
+
+func (s *AuthService) RefreshToken(refreshTokenStr string) (string, string, *models.User, error) {
+	refreshTokenStr = strings.TrimSpace(refreshTokenStr)
+	if refreshTokenStr == "" {
+		return "", "", nil, errors.New("refresh_token is required")
 	}
 
-	return token, user, nil
+	claims := &utils.Claims{}
+	token, err := jwt.ParseWithClaims(
+		refreshTokenStr,
+		claims,
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(os.Getenv("JWT_SECRET")), nil
+		},
+	)
+	if err != nil || !token.Valid {
+		return "", "", nil, errors.New("invalid or expired refresh token")
+	}
+
+	user, err := s.UserRepo.GetByID(claims.UserID)
+	if err != nil || user == nil {
+		return "", "", nil, errors.New("user account not found")
+	}
+
+	newToken, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("failed to generate access token: %v", err)
+	}
+
+	newRefreshToken, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
+	if err != nil {
+		newRefreshToken = refreshTokenStr
+	}
+
+	return newToken, newRefreshToken, user, nil
 }

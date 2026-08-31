@@ -48,3 +48,8 @@ type VerifyMPINRequest struct {
 	Email string `json:"email" binding:"required,email"`
 	MPIN  string `json:"mpin" binding:"required,len=4,numeric"`
 }
+
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+

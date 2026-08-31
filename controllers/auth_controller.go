@@ -151,7 +151,7 @@ func (a *AuthController) VerifySignup(c *gin.Context) {
 		return
 	}
 
-	token, user, err := a.Service.VerifySignup(req)
+	token, refreshToken, user, err := a.Service.VerifySignup(req)
 
 	if err != nil {
 
@@ -164,9 +164,10 @@ func (a *AuthController) VerifySignup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"token":   token,
-		"user":    user,
+		"success":       true,
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 
@@ -250,7 +251,7 @@ func (a *AuthController) VerifyLogin(c *gin.Context) {
 		return
 	}
 
-	token, user, err := a.Service.VerifyLogin(req)
+	token, refreshToken, user, err := a.Service.VerifyLogin(req)
 
 	if err != nil {
 
@@ -263,9 +264,10 @@ func (a *AuthController) VerifyLogin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"token":   token,
-		"user":    user,
+		"success":       true,
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 
@@ -316,7 +318,7 @@ func (a *AuthController) VerifyMPIN(c *gin.Context) {
 		return
 	}
 
-	token, user, err := a.Service.VerifyMPIN(req)
+	token, refreshToken, user, err := a.Service.VerifyMPIN(req)
 
 	if err != nil {
 
@@ -329,8 +331,38 @@ func (a *AuthController) VerifyMPIN(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"token":   token,
-		"user":    user,
+		"success":       true,
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user":          user,
+	})
+}
+
+func (a *AuthController) RefreshToken(c *gin.Context) {
+	var req dto.RefreshTokenRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "refresh_token is required",
+		})
+		return
+	}
+
+	token, refreshToken, user, err := a.Service.RefreshToken(req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"data":          gin.H{"token": token, "user": user},
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }

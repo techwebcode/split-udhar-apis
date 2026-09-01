@@ -1,6 +1,8 @@
 package services
 
 import (
+	"errors"
+
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
@@ -29,7 +31,17 @@ func (s *UserService) UpdateProfile(userID uint, req dto.UpdateProfileRequest) e
 		return err
 	}
 
-	user.FullName = req.FullName
+	if req.FullName != "" {
+		user.FullName = req.FullName
+	}
+
+	if req.Mobile != "" {
+		existingUser, err := s.UserRepo.GetByMobile(req.Mobile)
+		if err == nil && existingUser != nil && existingUser.ID != userID {
+			return errors.New("mobile number is already registered with another account")
+		}
+		user.Mobile = req.Mobile
+	}
 
 	return s.UserRepo.Update(user)
 }

@@ -334,8 +334,6 @@ func (s *TransactionService) GetTransactionSummary(
 			regUser, err := s.userRepo.GetByMobile(contactMobile)
 			if err == nil && regUser != nil && regUser.FullName != "" {
 				displayName = regUser.FullName
-			} else if displayName == "" {
-				displayName = contactMobile
 			}
 
 			summaryMap[key] = &dto.TransactionSummaryResponse{
@@ -343,6 +341,15 @@ func (s *TransactionService) GetTransactionSummary(
 				ContactName:         displayName,
 				LastTransactionDate: transaction.TransactionDate,
 				Transactions:        make([]models.Transaction, 0),
+			}
+		} else {
+			if summaryMap[key].ContactName == "" || summaryMap[key].ContactName == contactMobile {
+				regUser, err := s.userRepo.GetByMobile(contactMobile)
+				if err == nil && regUser != nil && regUser.FullName != "" {
+					summaryMap[key].ContactName = regUser.FullName
+				} else if transaction.ContactName != "" {
+					summaryMap[key].ContactName = transaction.ContactName
+				}
 			}
 		}
 

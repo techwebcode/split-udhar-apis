@@ -18,11 +18,11 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 		c.JSON(200, gin.H{
 			"success": true,
 			"data": gin.H{
-				"latest_version":            "1.0.9",
-				"build_number":              15,
-				"minimum_supported_version": "1.0.8",
+				"latest_version":            "2.0.2",
+				"build_number":              17,
+				"minimum_supported_version": "2.0.2",
 				"update_url":                "https://play.google.com/store/apps/details?id=com.techwebcode.splitudhar",
-				"release_notes":             []string{"Google Sign-in, UI & Performance Improvements"},
+				"release_notes":             []string{"UI Improvements & Balance Bug Fix"},
 				"force_update":              false,
 			},
 		})

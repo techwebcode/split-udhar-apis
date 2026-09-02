@@ -312,6 +312,11 @@ func (s *TransactionService) GetTransactionSummary(
 			continue
 		}
 
+		// Exclude group split transactions so they are not merged into peer friend balances
+		if transaction.GroupID != nil || transaction.ExpenseType == models.ExpenseGroup {
+			continue
+		}
+
 		// Match on the normalized number: the same contact can be stored as
 		// "+919876543210" on one row and "9876543210" on another.
 		userIsPayer := utils.SameMobile(transaction.FromMobile, userMobile)

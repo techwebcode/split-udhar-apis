@@ -547,7 +547,16 @@ func (s *GroupService) DeleteGroup(groupID uint, userMobile string) error {
 		return errors.New("only the group owner can delete this group")
 	}
 
-	return s.groupRepo.Delete(groupID)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		repos := s.reposFor(tx)
+		_ = repos.transactions.DB.Model(&models.Transaction{}).
+			Where("group_id = ?", groupID).
+			Updates(map[string]interface{}{
+				"is_deleted": true,
+			}).Error
+		_ = repos.transactions.DB.Where("group_id = ?", groupID).Delete(&models.Transaction{}).Error
+		return repos.groups.Delete(groupID)
+	})
 }
 
 func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.SettleGroupRequest) error {
@@ -677,6 +686,10 @@ func (s *GroupService) DeleteGroupExpense(groupID uint, expenseID uint, userMobi
 		return errors.New("expense not found")
 	}
 
+	if expense.GroupID != groupID {
+		return errors.New("expense does not belong to this group")
+	}
+
 	// Only owner/creator of the expense or group creator can delete it
 	if !utils.SameMobile(expense.CreatedBy, userMobile) && !utils.SameMobile(expense.PayerMobile, userMobile) && !utils.SameMobile(group.CreatedBy, userMobile) {
 		return errors.New("only the owner who added this transaction can delete it")
@@ -699,7 +712,7 @@ func (s *GroupService) DeleteGroupExpense(groupID uint, expenseID uint, userMobi
 		if err := repos.transactions.DeleteByGroupExpense(expenseID); err != nil {
 			return err
 		}
-		return repos.groups.DeleteExpense(expenseID)
+		return repos.groups.DeleteExpense(expenseID, userMobile)
 	})
 }
 

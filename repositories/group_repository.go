@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"time"
+
 	"split-udhar-apis/models"
 	"split-udhar-apis/utils"
 
@@ -46,9 +48,13 @@ func (r *GroupRepository) GetUserGroups(userMobile string) ([]models.Group, erro
 	}
 
 	var groups []models.Group
-	err = r.DB.Preload("Members").Preload("Expenses", func(db *gorm.DB) *gorm.DB {
-		return db.Order("created_at DESC")
-	}).
+	err = r.DB.
+		Preload("Members", func(db *gorm.DB) *gorm.DB {
+			return db.Where("deleted_at IS NULL")
+		}).
+		Preload("Expenses", func(db *gorm.DB) *gorm.DB {
+			return db.Where("deleted_at IS NULL AND is_deleted = false").Order("created_at DESC")
+		}).
 		Where("id IN ?", groupIDs).
 		Order("created_at DESC").
 		Find(&groups).Error
@@ -58,9 +64,13 @@ func (r *GroupRepository) GetUserGroups(userMobile string) ([]models.Group, erro
 
 func (r *GroupRepository) GetByID(id uint) (*models.Group, error) {
 	var group models.Group
-	err := r.DB.Unscoped().Preload("Members").Preload("Expenses", func(db *gorm.DB) *gorm.DB {
-		return db.Order("created_at DESC")
-	}).First(&group, id).Error
+	err := r.DB.Unscoped().
+		Preload("Members", func(db *gorm.DB) *gorm.DB {
+			return db.Where("deleted_at IS NULL")
+		}).
+		Preload("Expenses", func(db *gorm.DB) *gorm.DB {
+			return db.Where("deleted_at IS NULL AND is_deleted = false").Order("created_at DESC")
+		}).First(&group, id).Error
 
 	if err != nil {
 		return nil, err
@@ -121,7 +131,18 @@ func (r *GroupRepository) UpdateExpense(expense *models.GroupExpense) error {
 	return r.DB.Save(expense).Error
 }
 
-func (r *GroupRepository) DeleteExpense(expenseID uint) error {
+func (r *GroupRepository) DeleteExpense(expenseID uint, deletedBy string) error {
+	now := time.Now()
+	updates := map[string]interface{}{
+		"is_deleted":      true,
+		"deleted_at_time": &now,
+	}
+	if deletedBy != "" {
+		updates["deleted_by"] = deletedBy
+	}
+	if err := r.DB.Model(&models.GroupExpense{}).Where("id = ?", expenseID).Updates(updates).Error; err != nil {
+		return err
+	}
 	return r.DB.Delete(&models.GroupExpense{Model: gorm.Model{ID: expenseID}}).Error
 }
 

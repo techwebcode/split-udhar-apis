@@ -92,6 +92,11 @@ func (r *TransactionRepository) Update(transaction *models.Transaction) error {
 // expense. Used when that expense is edited or deleted, so the personal ledger
 // does not keep rows for a split that no longer exists.
 func (r *TransactionRepository) DeleteByGroupExpense(expenseID uint) error {
+	_ = r.DB.Model(&models.Transaction{}).
+		Where("group_expense_id = ?", expenseID).
+		Updates(map[string]interface{}{
+			"is_deleted": true,
+		}).Error
 	return r.DB.Where("group_expense_id = ?", expenseID).
 		Delete(&models.Transaction{}).Error
 }
@@ -135,6 +140,10 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 		if transaction.IsDeleted || transaction.IsArchived {
 			continue
 		}
+		// Group split transactions are not merged into peer-to-peer friend balances
+		if transaction.GroupID != nil || transaction.ExpenseType == models.ExpenseGroup {
+			continue
+		}
 		count++
 		from10 := extractTenDigits(transaction.FromMobile)
 		to10 := extractTenDigits(transaction.ToMobile)
@@ -162,6 +171,21 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 			received += net
 		} else if net < 0 {
 			given += -net
+		}
+	}
+
+	// Add current user's personal financial position from groups (group_members)
+	var memberBalances []float64
+	_ = r.DB.Model(&models.GroupMember{}).
+		Joins("JOIN `groups` ON `groups`.id = group_members.group_id AND `groups`.deleted_at IS NULL").
+		Where("(group_members.user_mobile = ? OR RIGHT(group_members.user_mobile, 10) = ?) AND group_members.deleted_at IS NULL", mobile, u10).
+		Pluck("group_members.balance", &memberBalances).Error
+
+	for _, bal := range memberBalances {
+		if bal > 0 {
+			received += bal
+		} else if bal < 0 {
+			given += -bal
 		}
 	}
 

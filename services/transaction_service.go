@@ -439,16 +439,15 @@ func (s *TransactionService) ArchiveTransaction(id uint, userMobile string) erro
 		userEmail = currentUser.Email
 	}
 
-	isOwner := false
-	if transaction.CreatedBy != "" {
-		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
-	} else {
-		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
-			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	isAuthorized := false
+	if transaction.CreatedBy != "" && (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) {
+		isAuthorized = true
+	} else if transaction.FromMobile == userMobile || transaction.ToMobile == userMobile {
+		isAuthorized = true
 	}
 
-	if !isOwner {
-		return errors.New("only the transaction creator can archive this transaction")
+	if !isAuthorized {
+		return errors.New("only transaction participants can archive this transaction")
 	}
 
 	return s.transactionRepo.Archive(id)
@@ -479,16 +478,15 @@ func (s *TransactionService) UnarchiveTransaction(id uint, userMobile string) er
 		userEmail = currentUser.Email
 	}
 
-	isOwner := false
-	if transaction.CreatedBy != "" {
-		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
-	} else {
-		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
-			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	isAuthorized := false
+	if transaction.CreatedBy != "" && (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail)) {
+		isAuthorized = true
+	} else if transaction.FromMobile == userMobile || transaction.ToMobile == userMobile {
+		isAuthorized = true
 	}
 
-	if !isOwner {
-		return errors.New("only the transaction creator can unarchive this transaction")
+	if !isAuthorized {
+		return errors.New("only transaction participants can unarchive this transaction")
 	}
 
 	return s.transactionRepo.Unarchive(id)

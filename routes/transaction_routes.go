@@ -29,6 +29,10 @@ func TransactionRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 		transactions.PUT("/:id", controller.Update)
 
+		transactions.PUT("/:id/archive", controller.Archive)
+
+		transactions.PUT("/:id/unarchive", controller.Unarchive)
+
 		transactions.DELETE("/:id", controller.Delete)
 	}
 }

@@ -263,3 +263,57 @@ func (t *TransactionController) GetHistory(c *gin.Context) {
 		"data":    data,
 	})
 }
+
+func (t *TransactionController) Archive(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid transaction id",
+		})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = t.Service.ArchiveTransaction(uint(id), userMobile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Transaction archived successfully",
+	})
+}
+
+func (t *TransactionController) Unarchive(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid transaction id",
+		})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = t.Service.UnarchiveTransaction(uint(id), userMobile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Transaction unarchived successfully",
+	})
+}

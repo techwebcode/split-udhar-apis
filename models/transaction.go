@@ -61,8 +61,8 @@ type Transaction struct {
 	CreatedBy string `gorm:"size:50" json:"created_by"`
 	UpdatedBy string `gorm:"size:50" json:"updated_by"`
 
-	// IsArchived is populated by the repository when the parent group is soft-deleted.
-	IsArchived bool `gorm:"->;type:boolean" json:"is_archived"`
+	// IsArchived is persisted or populated when the parent group is soft-deleted.
+	IsArchived bool `gorm:"default:false" json:"is_archived"`
 
 	IsEdited       bool       `gorm:"default:false" json:"is_edited"`
 	IsDeleted      bool       `gorm:"default:false" json:"is_deleted"`

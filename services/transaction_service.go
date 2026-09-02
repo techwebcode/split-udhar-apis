@@ -423,3 +423,73 @@ func (s *TransactionService) GetTransactionHistory(
 
 	return response, nil
 }
+
+func (s *TransactionService) ArchiveTransaction(id uint, userMobile string) error {
+	transaction, err := s.transactionRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if transaction.IsDeleted {
+		return errors.New("cannot archive a deleted transaction")
+	}
+
+	currentUser, _ := s.userRepo.GetByMobile(userMobile)
+	userEmail := ""
+	if currentUser != nil {
+		userEmail = currentUser.Email
+	}
+
+	isOwner := false
+	if transaction.CreatedBy != "" {
+		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
+	} else {
+		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	}
+
+	if !isOwner {
+		return errors.New("only the transaction creator can archive this transaction")
+	}
+
+	return s.transactionRepo.Archive(id)
+}
+
+func (s *TransactionService) UnarchiveTransaction(id uint, userMobile string) error {
+	transaction, err := s.transactionRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if transaction.IsDeleted {
+		return errors.New("cannot unarchive a deleted transaction")
+	}
+
+	// If transaction belongs to a soft-deleted group, cannot unarchive directly
+	if transaction.GroupID != nil {
+		var group models.Group
+		if err := s.transactionRepo.DB.Unscoped().First(&group, *transaction.GroupID).Error; err == nil {
+			if group.DeletedAt.Valid {
+				return errors.New("cannot unarchive transaction of an archived group")
+			}
+		}
+	}
+
+	currentUser, _ := s.userRepo.GetByMobile(userMobile)
+	userEmail := ""
+	if currentUser != nil {
+		userEmail = currentUser.Email
+	}
+
+	isOwner := false
+	if transaction.CreatedBy != "" {
+		isOwner = (transaction.CreatedBy == userMobile || (userEmail != "" && transaction.CreatedBy == userEmail))
+	} else {
+		isOwner = (transaction.Type == models.TransactionGive && transaction.FromMobile == userMobile) ||
+			(transaction.Type == models.TransactionReceive && transaction.ToMobile == userMobile)
+	}
+
+	if !isOwner {
+		return errors.New("only the transaction creator can unarchive this transaction")
+	}
+
+	return s.transactionRepo.Unarchive(id)
+}

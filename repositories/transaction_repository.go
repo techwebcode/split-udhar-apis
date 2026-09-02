@@ -41,7 +41,7 @@ func (r *TransactionRepository) GetTransactionsBetween(userMobile, otherMobile s
 	o10 := extractTenDigits(otherMobile)
 
 	err := r.DB.
-		Select("transactions.*, CASE WHEN `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
+		Select("transactions.*, CASE WHEN transactions.is_archived = true OR `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
 		Joins("LEFT JOIN `groups` ON transactions.group_id = `groups`.id").
 		Where(
 			"((transactions.from_mobile = ? OR RIGHT(transactions.from_mobile, 10) = ?) AND (transactions.to_mobile = ? OR RIGHT(transactions.to_mobile, 10) = ?)) OR "+
@@ -60,7 +60,7 @@ func (r *TransactionRepository) GetUserTransactions(userMobile string) ([]models
 	u10 := extractTenDigits(userMobile)
 
 	err := r.DB.
-		Select("transactions.*, CASE WHEN `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
+		Select("transactions.*, CASE WHEN transactions.is_archived = true OR `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
 		Joins("LEFT JOIN `groups` ON transactions.group_id = `groups`.id").
 		Where(
 			"transactions.from_mobile = ? OR transactions.to_mobile = ? OR RIGHT(transactions.from_mobile, 10) = ? OR RIGHT(transactions.to_mobile, 10) = ?",
@@ -121,7 +121,7 @@ func (r *TransactionRepository) GetDashboardData(mobile string) (
 	u10 := extractTenDigits(mobile)
 
 	err = r.DB.
-		Select("transactions.*, CASE WHEN `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
+		Select("transactions.*, CASE WHEN transactions.is_archived = true OR `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
 		Joins("LEFT JOIN `groups` ON transactions.group_id = `groups`.id").
 		Where("`groups`.deleted_at IS NULL OR transactions.group_id IS NULL").
 		Where(
@@ -201,7 +201,7 @@ func (r *TransactionRepository) GetTransactionsByMobile(
 	c10 := extractTenDigits(contactMobile)
 
 	err := r.DB.
-		Select("transactions.*, CASE WHEN `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
+		Select("transactions.*, CASE WHEN transactions.is_archived = true OR `groups`.deleted_at IS NOT NULL THEN true ELSE false END as is_archived").
 		Joins("LEFT JOIN `groups` ON transactions.group_id = `groups`.id").
 		Where(
 			"((transactions.from_mobile = ? OR RIGHT(transactions.from_mobile, 10) = ?) AND (transactions.to_mobile = ? OR RIGHT(transactions.to_mobile, 10) = ?)) OR "+
@@ -213,4 +213,12 @@ func (r *TransactionRepository) GetTransactionsByMobile(
 		Find(&transactions).Error
 
 	return transactions, err
+}
+
+func (r *TransactionRepository) Archive(id uint) error {
+	return r.DB.Model(&models.Transaction{}).Where("id = ?", id).Update("is_archived", true).Error
+}
+
+func (r *TransactionRepository) Unarchive(id uint) error {
+	return r.DB.Model(&models.Transaction{}).Where("id = ?", id).Update("is_archived", false).Error
 }

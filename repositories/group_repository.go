@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"errors"
 	"time"
 
 	"split-udhar-apis/models"
@@ -64,13 +65,23 @@ func (r *GroupRepository) GetUserGroups(userMobile string) ([]models.Group, erro
 
 func (r *GroupRepository) GetByID(id uint) (*models.Group, error) {
 	var group models.Group
-	err := r.DB.Unscoped().
+	err := r.DB.
 		Preload("Members", func(db *gorm.DB) *gorm.DB {
 			return db.Where("deleted_at IS NULL")
 		}).
 		Preload("Expenses", func(db *gorm.DB) *gorm.DB {
 			return db.Where("deleted_at IS NULL AND is_deleted = false").Order("created_at DESC")
 		}).First(&group, id).Error
+
+	if err != nil && errors.Is(err, gorm.ErrRecordNotFound) {
+		err = r.DB.Unscoped().
+			Preload("Members", func(db *gorm.DB) *gorm.DB {
+				return db.Where("deleted_at IS NULL")
+			}).
+			Preload("Expenses", func(db *gorm.DB) *gorm.DB {
+				return db.Where("deleted_at IS NULL AND is_deleted = false").Order("created_at DESC")
+			}).First(&group, id).Error
+	}
 
 	if err != nil {
 		return nil, err

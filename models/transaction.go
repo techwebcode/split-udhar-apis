@@ -69,12 +69,6 @@ type Transaction struct {
 	PreviousAmount float64    `gorm:"type:decimal(12,2)" json:"previous_amount,omitempty"`
 	PreviousNote   string     `gorm:"type:text" json:"previous_note,omitempty"`
 	EditedAt       *time.Time `json:"edited_at,omitempty"`
-
-	// Resolved canonical identity fields populated via database joins with users table
-	ToUserName   string `gorm:"->" json:"to_user_name,omitempty"`
-	FromUserName string `gorm:"->" json:"from_user_name,omitempty"`
-	ToUserID     *uint  `gorm:"->" json:"to_user_id,omitempty"`
-	FromUserID   *uint  `gorm:"->" json:"from_user_id,omitempty"`
 }
 
 type TransactionEditLog struct {

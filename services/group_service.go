@@ -233,13 +233,16 @@ func (s *GroupService) applyExpenseBalances(
 
 func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequest) (*models.Group, error) {
 	creatorName := "Creator"
+	var creatorID *uint
 	creatorUser, err := s.userRepo.GetByMobile(creatorMobile)
 	if err == nil && creatorUser != nil {
+		creatorID = &creatorUser.ID
 		creatorName = creatorUser.FullName
 	}
 
 	members := []models.GroupMember{
 		{
+			UserID:     creatorID,
 			UserMobile: creatorMobile,
 			UserName:   creatorName,
 			Balance:    0,
@@ -251,19 +254,34 @@ func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequ
 		if utils.SameMobile(m.Mobile, creatorMobile) {
 			continue
 		}
-		name := m.Name
-		if name == "" {
-			u, err := s.userRepo.GetByMobile(m.Mobile)
-			if err == nil && u != nil {
-				name = u.FullName
+		cleanMobile := utils.NormalizeMobile(m.Mobile)
+		u, err := s.userRepo.GetByMobile(cleanMobile)
+		var memberUserID *uint
+		var memberName string
+		if err == nil && u != nil && u.ID > 0 {
+			// Rule 1: REGISTERED SPLITUDHAR USER
+			// Use user's SplitUdhar user_id and profile/display name from database.
+			// Never use the local phone Contact name as the canonical name.
+			memberUserID = &u.ID
+			memberName = u.FullName
+		} else {
+			// Rule 2: UNREGISTERED PERSON
+			// Use the name from the user's phone Contacts / manual entry.
+			// If no name exists, show mobile number.
+			// Keep user_id = null until they register.
+			memberUserID = nil
+			trimmedName := strings.TrimSpace(m.Name)
+			if trimmedName != "" && trimmedName != "Member" {
+				memberName = trimmedName
 			} else {
-				name = m.Mobile
+				memberName = m.Mobile
 			}
 		}
 
 		members = append(members, models.GroupMember{
+			UserID:     memberUserID,
 			UserMobile: m.Mobile,
-			UserName:   name,
+			UserName:   memberName,
 			Balance:    0,
 		})
 	}
@@ -307,7 +325,31 @@ func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequ
 }
 
 func (s *GroupService) GetUserGroups(userMobile string) ([]models.Group, error) {
-	return s.groupRepo.GetUserGroups(userMobile)
+	groups, err := s.groupRepo.GetUserGroups(userMobile)
+	if err != nil {
+		return nil, err
+	}
+
+	for gIdx := range groups {
+		for mIdx := range groups[gIdx].Members {
+			m := &groups[gIdx].Members[mIdx]
+			if m.UserID == nil {
+				cleanMob := utils.NormalizeMobile(m.UserMobile)
+				if regUser, err := s.userRepo.GetByMobile(cleanMob); err == nil && regUser != nil && regUser.ID > 0 {
+					m.UserID = &regUser.ID
+					m.UserName = regUser.FullName
+					_ = s.db.Model(&models.GroupMember{}).
+						Where("id = ?", m.ID).
+						Updates(map[string]interface{}{
+							"user_id":   m.UserID,
+							"user_name": m.UserName,
+						}).Error
+				}
+			}
+		}
+	}
+
+	return groups, nil
 }
 
 func (s *GroupService) GetGroupDetails(groupID uint, userMobile string) (*models.Group, error) {
@@ -322,6 +364,33 @@ func (s *GroupService) GetGroupDetails(groupID uint, userMobile string) (*models
 
 	if group.DeletedAt.Valid {
 		group.IsArchived = true
+	}
+
+	// Self-healing / synchronization check:
+	// Verify if any members now belong to registered users whose user_id is unset
+	// or whose display name should reflect the latest database profile name.
+	for i := range group.Members {
+		m := &group.Members[i]
+		cleanMob := utils.NormalizeMobile(m.UserMobile)
+		if regUser, err := s.userRepo.GetByMobile(cleanMob); err == nil && regUser != nil && regUser.ID > 0 {
+			needsUpdate := false
+			if m.UserID == nil || *m.UserID != regUser.ID {
+				m.UserID = &regUser.ID
+				needsUpdate = true
+			}
+			if m.UserName != regUser.FullName && regUser.FullName != "" {
+				m.UserName = regUser.FullName
+				needsUpdate = true
+			}
+			if needsUpdate {
+				_ = s.db.Model(&models.GroupMember{}).
+					Where("id = ?", m.ID).
+					Updates(map[string]interface{}{
+						"user_id":   m.UserID,
+						"user_name": m.UserName,
+					}).Error
+			}
+		}
 	}
 
 	return group, nil
@@ -345,20 +414,30 @@ func (s *GroupService) AddMember(groupID uint, requesterMobile string, memberReq
 		}
 	}
 
-	name := memberReq.Name
-	if name == "" {
-		u, err := s.userRepo.GetByMobile(memberReq.Mobile)
-		if err == nil && u != nil {
-			name = u.FullName
+	cleanMobile := utils.NormalizeMobile(memberReq.Mobile)
+	u, err := s.userRepo.GetByMobile(cleanMobile)
+	var memberUserID *uint
+	var memberName string
+	if err == nil && u != nil && u.ID > 0 {
+		// Rule 1: REGISTERED SPLITUDHAR USER
+		memberUserID = &u.ID
+		memberName = u.FullName
+	} else {
+		// Rule 2: UNREGISTERED PERSON
+		memberUserID = nil
+		trimmedName := strings.TrimSpace(memberReq.Name)
+		if trimmedName != "" && trimmedName != "Member" {
+			memberName = trimmedName
 		} else {
-			name = memberReq.Mobile
+			memberName = memberReq.Mobile
 		}
 	}
 
 	member := models.GroupMember{
 		GroupID:    groupID,
+		UserID:     memberUserID,
 		UserMobile: memberReq.Mobile,
-		UserName:   name,
+		UserName:   memberName,
 		Balance:    0,
 	}
 

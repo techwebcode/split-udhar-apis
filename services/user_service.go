@@ -11,12 +11,14 @@ import (
 )
 
 type UserService struct {
-	UserRepo *repositories.UserRepository
+	UserRepo  *repositories.UserRepository
+	GroupRepo *repositories.GroupRepository
 }
 
 func NewUserService(db *gorm.DB) *UserService {
 	return &UserService{
-		UserRepo: repositories.NewUserRepository(db),
+		UserRepo:  repositories.NewUserRepository(db),
+		GroupRepo: repositories.NewGroupRepository(db),
 	}
 }
 
@@ -43,7 +45,15 @@ func (s *UserService) UpdateProfile(userID uint, req dto.UpdateProfileRequest) e
 		user.Mobile = req.Mobile
 	}
 
-	return s.UserRepo.Update(user)
+	if err := s.UserRepo.Update(user); err != nil {
+		return err
+	}
+
+	if s.GroupRepo != nil && (req.FullName != "" || req.Mobile != "") {
+		_ = s.GroupRepo.LinkUserToGroupMembers(user)
+	}
+
+	return nil
 }
 
 func (s *UserService) DeleteAccount(userID uint) error {

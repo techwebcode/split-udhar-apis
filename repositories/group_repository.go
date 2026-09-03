@@ -179,3 +179,19 @@ func (r *GroupRepository) UpdateGroupDetails(groupID uint, name, description str
 func (r *GroupRepository) Delete(id uint) error {
 	return r.DB.Select("Members", "Expenses").Delete(&models.Group{Model: gorm.Model{ID: id}}).Error
 }
+
+// LinkUserToGroupMembers links any group_members matching the user's mobile number
+// to their registered UserID and updates their canonical UserName to the user's FullName.
+func (r *GroupRepository) LinkUserToGroupMembers(user *models.User) error {
+	if user == nil || user.ID == 0 || user.Mobile == "" {
+		return nil
+	}
+	cleanMobile := utils.NormalizeMobile(user.Mobile)
+	return r.DB.Model(&models.GroupMember{}).
+		Where("user_mobile = ? OR user_mobile = ? OR user_mobile LIKE ?", user.Mobile, cleanMobile, "%"+cleanMobile).
+		Updates(map[string]interface{}{
+			"user_id":   user.ID,
+			"user_name": user.FullName,
+		}).Error
+}
+

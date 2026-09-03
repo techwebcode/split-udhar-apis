@@ -35,6 +35,7 @@ type AuthService struct {
 	OTPRepo      *repositories.OTPRepository
 	PendingRepo  *repositories.PendingUserRepository
 	EmailService *EmailService
+	GroupRepo    *repositories.GroupRepository
 }
 
 func NewAuthService(db *gorm.DB) *AuthService {
@@ -43,6 +44,7 @@ func NewAuthService(db *gorm.DB) *AuthService {
 		OTPRepo:      repositories.NewOTPRepository(db),
 		PendingRepo:  repositories.NewPendingUserRepository(db),
 		EmailService: NewEmailService(),
+		GroupRepo:    repositories.NewGroupRepository(db),
 	}
 }
 
@@ -217,6 +219,11 @@ func (s *AuthService) CompleteGoogleSignup(req dto.CompleteGoogleSignupRequest) 
 		user = &newUser
 	}
 
+	// Link any existing group member entries to this registered user
+	if s.GroupRepo != nil && user != nil {
+		_ = s.GroupRepo.LinkUserToGroupMembers(user)
+	}
+
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to generate token: %v", err)
@@ -314,6 +321,11 @@ func (s *AuthService) VerifySignup(req dto.SignupVerifyRequest) (string, string,
 
 	if err := s.UserRepo.Create(&user); err != nil {
 		return "", "", nil, err
+	}
+
+	// Link any existing group member entries to this registered user
+	if s.GroupRepo != nil {
+		_ = s.GroupRepo.LinkUserToGroupMembers(&user)
 	}
 
 	token, err := utils.GenerateToken(user.ID, user.Email, user.Mobile)

@@ -58,7 +58,7 @@ func (r *UserRepository) GetByMobile(mobile string) (*models.User, error) {
 		cleanMobile = normalized
 	}
 
-	err := r.DB.Where("mobile = ? OR RIGHT(mobile, 10) = ?", mobile, cleanMobile).Limit(1).Find(&users).Error
+	err := r.DB.Where("mobile = ? OR mobile = ? OR mobile LIKE ?", mobile, cleanMobile, "%"+cleanMobile).Limit(1).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}

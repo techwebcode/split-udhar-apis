@@ -334,25 +334,32 @@ func (s *TransactionService) GetTransactionSummary(
 			key = contactMobile
 		}
 
-		if _, exists := summaryMap[key]; !exists {
-			displayName := transaction.ContactName
-			regUser, err := s.userRepo.GetByMobile(contactMobile)
-			if err == nil && regUser != nil && regUser.FullName != "" {
-				displayName = regUser.FullName
-			}
+		regUser, err := s.userRepo.GetByMobile(contactMobile)
+		isRegistered := false
+		registeredName := ""
+		displayName := transaction.ContactName
+		if err == nil && regUser != nil && regUser.FullName != "" {
+			isRegistered = true
+			registeredName = regUser.FullName
+			displayName = regUser.FullName
+		}
 
+		if _, exists := summaryMap[key]; !exists {
 			summaryMap[key] = &dto.TransactionSummaryResponse{
 				Mobile:              contactMobile,
 				ContactName:         displayName,
+				RegisteredName:      registeredName,
+				IsRegistered:        isRegistered,
 				LastTransactionDate: transaction.TransactionDate,
 				Transactions:        make([]models.Transaction, 0),
 			}
 		} else {
-			if summaryMap[key].ContactName == "" || summaryMap[key].ContactName == contactMobile {
-				regUser, err := s.userRepo.GetByMobile(contactMobile)
-				if err == nil && regUser != nil && regUser.FullName != "" {
-					summaryMap[key].ContactName = regUser.FullName
-				} else if transaction.ContactName != "" {
+			if isRegistered {
+				summaryMap[key].IsRegistered = true
+				summaryMap[key].RegisteredName = registeredName
+				summaryMap[key].ContactName = registeredName
+			} else if summaryMap[key].ContactName == "" || summaryMap[key].ContactName == contactMobile {
+				if transaction.ContactName != "" {
 					summaryMap[key].ContactName = transaction.ContactName
 				}
 			}

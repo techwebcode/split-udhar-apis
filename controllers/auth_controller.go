@@ -47,6 +47,43 @@ func (a *AuthController) CheckEmail(c *gin.Context) {
 	})
 }
 
+func (a *AuthController) CheckMobile(c *gin.Context) {
+	var req dto.CheckMobileRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Please enter a valid mobile number",
+		})
+		return
+	}
+
+	exists, user, err := a.Service.CheckMobile(req.Mobile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	res := gin.H{
+		"success":       true,
+		"exists":        exists,
+		"is_registered": exists,
+		"message":       "Mobile status retrieved",
+	}
+	if user != nil {
+		res["user"] = gin.H{
+			"id":        user.ID,
+			"full_name": user.FullName,
+			"mobile":    user.Mobile,
+		}
+	}
+
+	c.JSON(http.StatusOK, res)
+}
+
 func (a *AuthController) GoogleAuth(c *gin.Context) {
 	var req dto.GoogleAuthRequest
 

@@ -248,6 +248,24 @@ func (s *AuthService) CheckEmail(email string) (bool, error) {
 	return false, nil
 }
 
+// -------------------- CHECK MOBILE --------------------
+
+func (s *AuthService) CheckMobile(mobile string) (bool, *models.User, error) {
+	cleanMobile := strings.TrimSpace(mobile)
+	if cleanMobile == "" {
+		return false, nil, errors.New("mobile is required")
+	}
+
+	existingUser, err := s.UserRepo.GetByMobile(cleanMobile)
+	if err != nil {
+		return false, nil, err
+	}
+	if existingUser != nil {
+		return true, existingUser, nil
+	}
+	return false, nil, nil
+}
+
 // -------------------- SIGNUP --------------------
 
 func (s *AuthService) Signup(req dto.SignupRequest) error {

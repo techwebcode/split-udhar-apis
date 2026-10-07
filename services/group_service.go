@@ -1,10 +1,13 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 	"split-udhar-apis/dto"
+	"split-udhar-apis/services/storage"
+	"github.com/google/uuid"
 	"split-udhar-apis/models"
 	"split-udhar-apis/repositories"
 	"split-udhar-apis/utils"
@@ -20,6 +23,7 @@ type GroupService struct {
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
 	fcmService      *FCMService
+	storage         storage.ImageStorageService
 }
 
 func NewGroupService(db *gorm.DB) *GroupService {
@@ -29,6 +33,7 @@ func NewGroupService(db *gorm.DB) *GroupService {
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
 		fcmService:      NewFCMService(db),
+		storage:         storage.NewStorageServiceFromEnv(),
 	}
 }
 
@@ -1036,4 +1041,112 @@ func (s *GroupService) UpdateGroup(groupID uint, userMobile string, req dto.Upda
 	}
 
 	return s.groupRepo.UpdateGroupDetails(groupID, req.Name, req.Description)
+}
+
+
+// SetStorage allows injecting a custom storage service (e.g. for testing).
+func (s *GroupService) SetStorage(st storage.ImageStorageService) {
+	s.storage = st
+}
+
+func (s *GroupService) populateGroupImageURL(group *models.Group) {
+	if group != nil && group.GroupImageKey != "" && s.storage != nil {
+		group.GroupImageURL = s.storage.GetURL(group.GroupImageKey)
+	}
+}
+
+func (s *GroupService) GetGroupImage(groupID uint, userMobile string) (*dto.GroupImageResponse, error) {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return nil, errors.New("group not found")
+	}
+
+	if !isGroupMember(group, userMobile) {
+		return nil, errors.New("unauthorized to view group")
+	}
+
+	var url string
+	if group.GroupImageKey != "" && s.storage != nil {
+		url = s.storage.GetURL(group.GroupImageKey)
+	}
+
+	return &dto.GroupImageResponse{
+		GroupImageKey: group.GroupImageKey,
+		GroupImageURL: url,
+	}, nil
+}
+
+func (s *GroupService) UploadGroupImage(ctx context.Context, groupID uint, userMobile string, fileData []byte) (*dto.GroupImageResponse, error) {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return nil, errors.New("group not found")
+	}
+
+	// Use existing group permission check (same as UpdateGroup)
+	if !isGroupMember(group, userMobile) {
+		return nil, errors.New("unauthorized to update group image")
+	}
+
+	validated, err := utils.ValidateImage(fileData)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.storage == nil {
+		return nil, errors.New("storage service is not configured")
+	}
+
+	uniqueID := uuid.New().String()
+	newKey := fmt.Sprintf("groups/%d/profile/%s%s", groupID, uniqueID, validated.Extension)
+
+	// 1. Upload new image to R2 storage
+	if err := s.storage.Upload(ctx, newKey, fileData, validated.ContentType); err != nil {
+		return nil, fmt.Errorf("failed to upload image to storage: %w", err)
+	}
+
+	// 2. Persist new key in MySQL
+	oldKey := group.GroupImageKey
+	if err := s.groupRepo.UpdateGroupImageKey(groupID, newKey); err != nil {
+		_ = s.storage.Delete(ctx, newKey)
+		return nil, fmt.Errorf("failed to save group image reference to database: %w", err)
+	}
+
+	// 3. Delete old R2 object only after new reference is safely stored
+	if oldKey != "" && oldKey != newKey {
+		_ = s.storage.Delete(ctx, oldKey)
+	}
+
+	return &dto.GroupImageResponse{
+		GroupImageKey: newKey,
+		GroupImageURL: s.storage.GetURL(newKey),
+	}, nil
+}
+
+func (s *GroupService) RemoveGroupImage(ctx context.Context, groupID uint, userMobile string) error {
+	group, err := s.groupRepo.GetByID(groupID)
+	if err != nil {
+		return errors.New("group not found")
+	}
+
+	if !isGroupMember(group, userMobile) {
+		return errors.New("unauthorized to update group image")
+	}
+
+	if group.GroupImageKey == "" {
+		return nil
+	}
+
+	oldKey := group.GroupImageKey
+
+	// 1. Clear reference in MySQL first
+	if err := s.groupRepo.UpdateGroupImageKey(groupID, ""); err != nil {
+		return fmt.Errorf("failed to remove group image reference from database: %w", err)
+	}
+
+	// 2. Delete object from storage
+	if s.storage != nil && oldKey != "" {
+		_ = s.storage.Delete(ctx, oldKey)
+	}
+
+	return nil
 }

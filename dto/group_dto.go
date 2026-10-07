@@ -35,3 +35,9 @@ type UpdateGroupRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 }
+
+
+type GroupImageResponse struct {
+	GroupImageKey string `json:"group_image_key"`
+	GroupImageURL string `json:"group_image_url"`
+}

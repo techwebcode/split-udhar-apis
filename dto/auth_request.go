@@ -10,6 +10,10 @@ type CheckEmailRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+type CheckMobileRequest struct {
+	Mobile string `json:"mobile" binding:"required"`
+}
+
 type GoogleAuthRequest struct {
 	IDToken string `json:"id_token" binding:"required"`
 }

@@ -114,9 +114,12 @@ func (t *TransactionController) Create(c *gin.Context) {
 		return
 	}
 
+	isRegistered := t.Service.IsUserRegistered(req.Mobile)
+
 	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"message": "Transaction created successfully",
+		"success":       true,
+		"message":       "Transaction created successfully",
+		"is_registered": isRegistered,
 	})
 }
 

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"io"
 	"net/http"
 	"split-udhar-apis/dto"
 	"split-udhar-apis/services"
@@ -361,5 +362,103 @@ func (g *GroupController) UpdateGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Group details updated successfully",
+	})
+}
+
+
+func (g *GroupController) GetGroupImage(c *gin.Context) {
+	idParam := c.Param("id")
+	groupID, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid group ID"})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	res, err := g.Service.GetGroupImage(uint(groupID), userMobile)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err.Error() == "unauthorized to view group" {
+			status = http.StatusForbidden
+		} else if err.Error() == "group not found" {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
+}
+
+func (g *GroupController) UploadGroupImage(c *gin.Context) {
+	idParam := c.Param("id")
+	groupID, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid group ID"})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	fileHeader, err := c.FormFile("image")
+	if err != nil {
+		fileHeader, err = c.FormFile("file")
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "image file is required (field 'image' or 'file')"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "failed to open uploaded file"})
+		return
+	}
+	defer file.Close()
+
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "failed to read uploaded file"})
+		return
+	}
+
+	res, err := g.Service.UploadGroupImage(c.Request.Context(), uint(groupID), userMobile, fileBytes)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err.Error() == "unauthorized to update group image" {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Group picture updated successfully",
+		"data":    res,
+	})
+}
+
+func (g *GroupController) RemoveGroupImage(c *gin.Context) {
+	idParam := c.Param("id")
+	groupID, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid group ID"})
+		return
+	}
+
+	userMobile := c.GetString("mobile")
+	err = g.Service.RemoveGroupImage(c.Request.Context(), uint(groupID), userMobile)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err.Error() == "unauthorized to update group image" {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Group picture removed successfully",
 	})
 }

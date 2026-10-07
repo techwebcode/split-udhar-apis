@@ -11,6 +11,8 @@ type Group struct {
 	Name        string         `gorm:"size:100;not null" json:"name"`
 	Description string         `gorm:"type:text" json:"description"`
 	CreatedBy   string         `gorm:"size:15;not null;index" json:"created_by"`
+	GroupImageKey string         `gorm:"size:255" json:"group_image_key,omitempty"`
+	GroupImageURL string         `gorm:"-" json:"group_image_url,omitempty"`
 	Members     []GroupMember  `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE" json:"members"`
 	Expenses    []GroupExpense `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE" json:"expenses"`
 

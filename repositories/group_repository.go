@@ -195,3 +195,8 @@ func (r *GroupRepository) LinkUserToGroupMembers(user *models.User) error {
 		}).Error
 }
 
+
+
+func (r *GroupRepository) UpdateGroupImageKey(groupID uint, key string) error {
+	return r.DB.Model(&models.Group{}).Where("id = ?", groupID).Update("group_image_key", key).Error
+}

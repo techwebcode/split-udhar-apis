@@ -111,3 +111,8 @@ func (r *UserRepository) DeleteAccount(userID uint) error {
 	// 4. Delete user profile & credentials completely (unscoped hard delete)
 	return r.DB.Unscoped().Delete(&user).Error
 }
+
+
+func (r *UserRepository) UpdateProfileImageKey(userID uint, key string) error {
+	return r.DB.Model(&models.User{}).Where("id = ?", userID).Update("profile_image_key", key).Error
+}

@@ -29,6 +29,11 @@ func NewTransactionService(db *gorm.DB) *TransactionService {
 	}
 }
 
+func (s *TransactionService) IsUserRegistered(mobile string) bool {
+	u, err := s.userRepo.GetByMobile(mobile)
+	return err == nil && u != nil
+}
+
 func (s *TransactionService) CreateTransaction(userMobile string, req dto.CreateTransactionRequest) error {
 
 	// Prevent self transaction

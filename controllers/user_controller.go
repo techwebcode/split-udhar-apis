@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"io"
 	"net/http"
 
 	"split-udhar-apis/dto"
@@ -92,3 +93,88 @@ func (u *UserController) DeleteAccount(c *gin.Context) {
 	})
 }
 
+
+
+func (u *UserController) GetProfileImage(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	res, err := u.Service.GetProfileImage(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    res,
+	})
+}
+
+func (u *UserController) UploadProfileImage(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	fileHeader, err := c.FormFile("image")
+	if err != nil {
+		fileHeader, err = c.FormFile("file")
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "image file is required (field 'image' or 'file')",
+		})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "failed to open uploaded file",
+		})
+		return
+	}
+	defer file.Close()
+
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "failed to read uploaded file",
+		})
+		return
+	}
+
+	res, err := u.Service.UploadProfileImage(c.Request.Context(), userID, fileBytes)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Profile picture updated successfully",
+		"data":    res,
+	})
+}
+
+func (u *UserController) RemoveProfileImage(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	err := u.Service.RemoveProfileImage(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Profile picture removed successfully",
+	})
+}

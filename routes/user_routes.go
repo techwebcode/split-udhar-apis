@@ -14,6 +14,9 @@ func UserRoutes(router *gin.RouterGroup, db *gorm.DB) {
 	router.GET("/profile", user.GetProfile)
 
 	router.PUT("/profile", user.UpdateProfile)
+	router.GET("/profile/image", user.GetProfileImage)
+	router.POST("/profile/image", user.UploadProfileImage)
+	router.DELETE("/profile/image", user.RemoveProfileImage)
 
 	router.DELETE("/delete-account", user.DeleteAccount)
 }

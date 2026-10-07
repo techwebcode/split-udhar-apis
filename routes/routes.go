@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"split-udhar-apis/controllers"
 	"split-udhar-apis/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,10 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB) {
 
 	// Public routes
 	AuthRoutes(api.Group("/auth"), db)
+
+	// Public image serving route (proxies R2 with signed auth so public browsers never get 400)
+	imgCtrl := controllers.NewImageController(nil)
+	api.GET("/images/*key", imgCtrl.ServeImage)
 
 	api.GET("/app/version", func(c *gin.Context) {
 		c.JSON(200, gin.H{

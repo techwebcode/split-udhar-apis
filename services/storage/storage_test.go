@@ -63,12 +63,19 @@ func TestR2StorageService_GetURL(t *testing.T) {
 		t.Errorf("expected empty URL for empty key")
 	}
 
-	// Without PublicURL (falls back to R2 direct URL)
+	// Without PublicURL or when set to r2.cloudflarestorage.com (falls back to proxy route to prevent 400)
 	r2Direct := NewR2StorageService("acc123", "key123", "sec123", "bucket1", "")
 	url2 := r2Direct.GetURL("groups/1.png")
-	expectedDirect := "https://acc123.r2.cloudflarestorage.com/bucket1/groups/1.png"
+	expectedDirect := "/api/images/groups/1.png"
 	if url2 != expectedDirect {
-		t.Errorf("expected direct URL %q, got %q", expectedDirect, url2)
+		t.Errorf("expected proxy URL %q, got %q", expectedDirect, url2)
+	}
+
+	// When set to internal r2.cloudflarestorage.com endpoint, still falls back to proxy
+	r2S3Endpoint := NewR2StorageService("acc123", "key123", "sec123", "bucket1", "https://acc123.r2.cloudflarestorage.com")
+	url3 := r2S3Endpoint.GetURL("groups/1.png")
+	if url3 != expectedDirect {
+		t.Errorf("expected proxy URL %q, got %q", expectedDirect, url3)
 	}
 }
 

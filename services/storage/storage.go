@@ -22,6 +22,7 @@ type ImageStorageService interface {
 	Upload(ctx context.Context, key string, data []byte, contentType string) error
 	Delete(ctx context.Context, key string) error
 	GetURL(key string) string
+	Download(ctx context.Context, key string) ([]byte, string, error)
 }
 
 // R2StorageService implements ImageStorageService using Cloudflare R2's S3-compatible REST API.
@@ -151,15 +152,60 @@ func (r *R2StorageService) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// Download downloads an object from Cloudflare R2 using AWS SigV4 authorization.
+func (r *R2StorageService) Download(ctx context.Context, key string) ([]byte, string, error) {
+	if r.BucketName == "" || r.AccountID == "" {
+		return nil, "", errors.New("R2 storage is not properly configured")
+	}
+
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s", r.AccountID, r.BucketName, escapeKey(key))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create get request: %w", err)
+	}
+
+	if err := r.signRequest(req, nil); err != nil {
+		return nil, "", fmt.Errorf("failed to sign get request: %w", err)
+	}
+
+	resp, err := r.HTTPClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("R2 download network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, "", errors.New("object not found")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("R2 download failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read object body: %w", err)
+	}
+
+	return data, contentType, nil
+}
+
 // GetURL returns the publicly accessible CDN URL for a given object key.
 func (r *R2StorageService) GetURL(key string) string {
 	if key == "" {
 		return ""
 	}
-	if r.PublicURL != "" {
+	// If a real public CDN/domain is set (custom domain or pub-xxx.r2.dev)
+	if r.PublicURL != "" && !strings.Contains(r.PublicURL, "r2.cloudflarestorage.com") {
 		return fmt.Sprintf("%s/%s", r.PublicURL, strings.TrimLeft(key, "/"))
 	}
-	return fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s", r.AccountID, r.BucketName, strings.TrimLeft(key, "/"))
+	// Fallback to backend proxy route so browsers don't get 400 from unauthenticated S3 API calls
+	apiBase := os.Getenv("API_BASE_URL")
+	if apiBase != "" {
+		return fmt.Sprintf("%s/api/images/%s", strings.TrimRight(apiBase, "/"), strings.TrimLeft(key, "/"))
+	}
+	return fmt.Sprintf("/api/images/%s", strings.TrimLeft(key, "/"))
 }
 
 func escapeKey(key string) string {
@@ -279,4 +325,14 @@ func (m *MemoryStorageService) HasObject(key string) bool {
 	defer m.mu.RUnlock()
 	_, ok := m.Objects[key]
 	return ok
+}
+
+func (m *MemoryStorageService) Download(ctx context.Context, key string) ([]byte, string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	data, ok := m.Objects[key]
+	if !ok {
+		return nil, "", errors.New("object not found")
+	}
+	return append([]byte(nil), data...), "image/jpeg", nil
 }

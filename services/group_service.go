@@ -336,6 +336,7 @@ func (s *GroupService) GetUserGroups(userMobile string) ([]models.Group, error) 
 	}
 
 	for gIdx := range groups {
+		s.populateGroupImageURL(&groups[gIdx])
 		for mIdx := range groups[gIdx].Members {
 			m := &groups[gIdx].Members[mIdx]
 			if m.UserID == nil {
@@ -398,6 +399,7 @@ func (s *GroupService) GetGroupDetails(groupID uint, userMobile string) (*models
 		}
 	}
 
+	s.populateGroupImageURL(group)
 	return group, nil
 }
 
@@ -1050,8 +1052,23 @@ func (s *GroupService) SetStorage(st storage.ImageStorageService) {
 }
 
 func (s *GroupService) populateGroupImageURL(group *models.Group) {
-	if group != nil && group.GroupImageKey != "" && s.storage != nil {
+	if group == nil {
+		return
+	}
+	if group.GroupImageKey != "" && s.storage != nil {
 		group.GroupImageURL = s.storage.GetURL(group.GroupImageKey)
+	}
+	for i := range group.Members {
+		m := &group.Members[i]
+		cleanMob := utils.NormalizeMobile(m.UserMobile)
+		if cleanMob != "" {
+			if regUser, err := s.userRepo.GetByMobile(cleanMob); err == nil && regUser != nil {
+				if regUser.ProfileImageKey != "" && s.storage != nil {
+					m.ProfileImageKey = regUser.ProfileImageKey
+					m.ProfileImageURL = s.storage.GetURL(regUser.ProfileImageKey)
+				}
+			}
+		}
 	}
 }
 

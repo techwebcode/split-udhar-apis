@@ -22,11 +22,13 @@ type Group struct {
 
 type GroupMember struct {
 	gorm.Model
-	GroupID    uint    `gorm:"not null;index" json:"group_id"`
-	UserID     *uint   `gorm:"index" json:"user_id"`
-	UserMobile string  `gorm:"size:15;not null;index" json:"user_mobile"`
-	UserName   string  `gorm:"size:100" json:"user_name"`
-	Balance    float64 `gorm:"type:decimal(12,2);default:0" json:"balance"`
+	GroupID         uint    `gorm:"not null;index" json:"group_id"`
+	UserID          *uint   `gorm:"index" json:"user_id"`
+	UserMobile      string  `gorm:"size:15;not null;index" json:"user_mobile"`
+	UserName        string  `gorm:"size:100" json:"user_name"`
+	Balance         float64 `gorm:"type:decimal(12,2);default:0" json:"balance"`
+	ProfileImageKey string  `gorm:"-" json:"profile_image_key,omitempty"`
+	ProfileImageURL string  `gorm:"-" json:"profile_image_url,omitempty"`
 }
 
 // GroupExpenseKind distinguishes a shared expense from a settlement payment.

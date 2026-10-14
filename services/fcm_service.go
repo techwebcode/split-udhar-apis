@@ -29,9 +29,6 @@ func (s *FCMService) SaveFCMToken(userMobile string, userID uint, req dto.SaveFC
 	}
 	if user == nil && userMobile != "" {
 		user, _ = s.userRepo.GetByMobile(userMobile)
-		if user == nil {
-			user, _ = s.userRepo.GetByEmail(userMobile)
-		}
 	}
 
 	mobileVal := userMobile
@@ -52,10 +49,9 @@ func (s *FCMService) SaveFCMToken(userMobile string, userID uint, req dto.SaveFC
 		Mobile:   mobileVal,
 		FCMToken: req.FCMToken,
 		Platform: platform,
-		DeviceID: req.DeviceID,
 	}
 
-	log.Printf("[FCM SERVICE] Saving token for user '%s' (UserID: %d, DeviceID: '%s')", mobileVal, userID, req.DeviceID)
+	log.Printf("[FCM SERVICE] Saving token for user '%s' (UserID: %d)", mobileVal, userID)
 	return s.deviceRepo.SaveToken(&device)
 }
 

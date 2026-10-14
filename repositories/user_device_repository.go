@@ -16,33 +16,10 @@ func NewUserDeviceRepository(db *gorm.DB) *UserDeviceRepository {
 }
 
 func (r *UserDeviceRepository) SaveToken(device *models.UserDevice) error {
-	var existing models.UserDevice
-
-	// Try to find existing record by FCMToken or (Mobile + DeviceID)
-	query := r.db.Where("fcm_token = ?", device.FCMToken)
-	if device.DeviceID != "" {
-		query = r.db.Where("fcm_token = ? OR (mobile = ? AND device_id = ?)", device.FCMToken, device.Mobile, device.DeviceID)
-	}
-
-	err := query.First(&existing).Error
-	if err == nil {
-		// Update existing record
-		existing.Mobile = device.Mobile
-		existing.UserID = device.UserID
-		existing.FCMToken = device.FCMToken
-		if device.Platform != "" {
-			existing.Platform = device.Platform
-		}
-		if device.DeviceID != "" {
-			existing.DeviceID = device.DeviceID
-		}
-		return r.db.Save(&existing).Error
-	}
-
-	// Upsert clause on unique index
+	// Atomic Upsert: If fcm_token exists, update user assignment, otherwise insert.
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "fcm_token"}},
-		DoUpdates: clause.AssignmentColumns([]string{"user_id", "mobile", "platform", "device_id", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"user_id", "mobile", "platform", "updated_at"}),
 	}).Create(device).Error
 }
 

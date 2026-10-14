@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,14 @@ var (
 	fcmInitOnce   sync.Once
 	fcmInitFailed bool
 )
+
+// MaskToken produces a privacy-safe truncated version of an FCM token for structured logging.
+func MaskToken(token string) string {
+	if len(token) <= 14 {
+		return "[redacted]"
+	}
+	return fmt.Sprintf("%s...%s", token[:10], token[len(token)-4:])
+}
 
 // InitFCM initializes the Firebase Admin Messaging client.
 func InitFCM() *messaging.Client {
@@ -92,7 +101,7 @@ func SendFCMNotification(token, title, body string, data map[string]string) (boo
 
 	client := InitFCM()
 	if client == nil {
-		invalidTokens, err := sendLegacyHTTPNotification([]string{token}, title, body, data)
+		_, invalidTokens, err := sendLegacyHTTPNotification([]string{token}, title, body, data)
 		return len(invalidTokens) > 0, err
 	}
 
@@ -131,22 +140,29 @@ func SendFCMNotification(token, title, body string, data map[string]string) (boo
 	_, err := client.Send(ctx, msg)
 	if err != nil {
 		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
-			log.Printf("⚠️ FCM Stale Token Detected for token '%s...': %v", token[:min(10, len(token))], err)
+			log.Printf("⚠️ [FCM] Stale Token Detected for token '%s': %v", MaskToken(token), err)
 			return true, err
 		}
-		log.Printf("❌ FCM Dispatch Error for token '%s...': %v", token[:min(10, len(token))], err)
+		log.Printf("❌ [FCM] Dispatch Error for token '%s': %v", MaskToken(token), err)
 		return false, err
 	}
 
-	log.Printf("🚀 FCM Sent Successfully to token '%s...'", token[:min(10, len(token))])
+	log.Printf("🚀 [FCM] Message accepted by FCM for token '%s'", MaskToken(token))
 	return false, nil
 }
 
 // SendMulticastFCM sends push notifications to multiple device tokens.
-// Returns list of invalid/unregistered tokens so repository can clean them up.
-func SendMulticastFCM(tokens []string, title, body string, data map[string]string) ([]string, error) {
+// Automatically chunks requests to respect Firebase 500-token batch limits.
+// Returns (successfulDeliveriesCount, invalidTokensList, error).
+func SendMulticastFCM(tokens []string, title, body string, data map[string]string) (int, []string, error) {
 	if len(tokens) == 0 {
-		return nil, nil
+		return 0, nil, nil
+	}
+
+	// 1. Deduplicate tokens
+	tokens = DeduplicateTokens(tokens)
+	if len(tokens) == 0 {
+		return 0, nil, nil
 	}
 
 	client := InitFCM()
@@ -159,74 +175,98 @@ func SendMulticastFCM(tokens []string, title, body string, data map[string]strin
 	}
 	data["click_action"] = "FLUTTER_NOTIFICATION_CLICK"
 
-	multicastMsg := &messaging.MulticastMessage{
-		Tokens: tokens,
-		Notification: &messaging.Notification{
-			Title: title,
-			Body:  body,
-		},
-		Data: data,
-		Android: &messaging.AndroidConfig{
-			Priority: "high",
-			Notification: &messaging.AndroidNotification{
-				Sound:       "default",
-				ClickAction: "FLUTTER_NOTIFICATION_CLICK",
-				ChannelID:   "split_udhar_notifications",
+	const maxBatchSize = 500
+	var totalSuccess int
+	var allInvalidTokens []string
+	var transientErrors []error
+
+	for i := 0; i < len(tokens); i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > len(tokens) {
+			end = len(tokens)
+		}
+		batchTokens := tokens[i:end]
+
+		multicastMsg := &messaging.MulticastMessage{
+			Tokens: batchTokens,
+			Notification: &messaging.Notification{
+				Title: title,
+				Body:  body,
 			},
-		},
-		APNS: &messaging.APNSConfig{
-			Payload: &messaging.APNSPayload{
-				Aps: &messaging.Aps{
-					Sound: "default",
+			Data: data,
+			Android: &messaging.AndroidConfig{
+				Priority: "high",
+				Notification: &messaging.AndroidNotification{
+					Sound:       "default",
+					ClickAction: "FLUTTER_NOTIFICATION_CLICK",
+					ChannelID:   "split_udhar_notifications",
 				},
 			},
-		},
-	}
+			APNS: &messaging.APNSConfig{
+				Payload: &messaging.APNSPayload{
+					Aps: &messaging.Aps{
+						Sound: "default",
+					},
+				},
+			},
+		}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		br, err := client.SendEachForMulticast(ctx, multicastMsg)
+		cancel()
 
-	br, err := client.SendEachForMulticast(ctx, multicastMsg)
-	if err != nil {
-		log.Printf("❌ FCM Multicast Error: %v", err)
-		return nil, err
-	}
+		if err != nil {
+			log.Printf("❌ [FCM] Multicast batch failed for %d tokens: %v", len(batchTokens), err)
+			transientErrors = append(transientErrors, err)
+			continue
+		}
 
-	var invalidTokens []string
-	if br.FailureCount > 0 {
-		for idx, resp := range br.Responses {
-			if !resp.Success && resp.Error != nil {
-				if messaging.IsUnregistered(resp.Error) || messaging.IsInvalidArgument(resp.Error) {
-					invalidTokens = append(invalidTokens, tokens[idx])
+		totalSuccess += br.SuccessCount
+		if br.FailureCount > 0 {
+			for idx, resp := range br.Responses {
+				if !resp.Success && resp.Error != nil {
+					if messaging.IsUnregistered(resp.Error) || messaging.IsInvalidArgument(resp.Error) {
+						allInvalidTokens = append(allInvalidTokens, batchTokens[idx])
+					} else {
+						transientErrors = append(transientErrors, resp.Error)
+					}
 				}
 			}
 		}
 	}
 
-	log.Printf("🚀 FCM Multicast Complete: %d Success, %d Failures (%d Invalid Tokens)", br.SuccessCount, br.FailureCount, len(invalidTokens))
-	return invalidTokens, nil
-}
+	log.Printf("🚀 [FCM] Multicast Result: %d Attempted, %d Accepted by FCM, %d Permanent Invalid, %d Transient Failures",
+		len(tokens), totalSuccess, len(allInvalidTokens), len(transientErrors))
 
-func min(a, b int) int {
-	if a < b {
-		return a
+	var returnErr error
+	if totalSuccess == 0 && len(transientErrors) > 0 {
+		returnErr = transientErrors[0]
 	}
-	return b
+
+	return totalSuccess, allInvalidTokens, returnErr
 }
 
-func RawDataJSON(data map[string]string) string {
-	b, _ := json.Marshal(data)
-	return string(b)
+// DeduplicateTokens removes duplicate or blank tokens while preserving order.
+func DeduplicateTokens(tokens []string) []string {
+	seen := make(map[string]bool)
+	var deduped []string
+	for _, token := range tokens {
+		if token != "" && !seen[token] {
+			seen[token] = true
+			deduped = append(deduped, token)
+		}
+	}
+	return deduped
 }
 
-func sendLegacyHTTPNotification(tokens []string, title, body string, data map[string]string) ([]string, error) {
+func sendLegacyHTTPNotification(tokens []string, title, body string, data map[string]string) (int, []string, error) {
 	serverKey := os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
 	if serverKey == "" {
 		serverKey = os.Getenv("FCM_SERVER_KEY")
 	}
 	if serverKey == "" || len(tokens) == 0 {
 		log.Println("⚠️ FCM Notice: Service account / FCM key not configured, skipping notification")
-		return nil, nil
+		return 0, nil, nil
 	}
 
 	url := "https://fcm.googleapis.com/fcm/send"
@@ -250,12 +290,12 @@ func sendLegacyHTTPNotification(tokens []string, title, body string, data map[st
 
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
 	req.Header.Set("Authorization", "key="+serverKey)
@@ -267,10 +307,12 @@ func sendLegacyHTTPNotification(tokens []string, title, body string, data map[st
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("❌ FCM Legacy Dispatch Error: %v", err)
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 
-	log.Printf("🚀 FCM Legacy HTTP Dispatch to %d tokens, status: %s", len(tokens), resp.Status)
-	return nil, nil
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return len(tokens), nil, nil
+	}
+	return 0, nil, fmt.Errorf("FCM legacy endpoint responded with status %s", resp.Status)
 }

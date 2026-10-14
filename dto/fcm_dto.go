@@ -3,12 +3,12 @@ package dto
 type SaveFCMTokenRequest struct {
 	FCMToken string `json:"fcm_token" binding:"required"`
 	Platform string `json:"platform"`
-	DeviceID string `json:"device_id"`
+	DeviceID string `json:"device_id,omitempty"` // Obsolete, preserved for backward compatibility
 }
 
 type DeleteFCMTokenRequest struct {
-	FCMToken string `json:"fcm_token"`
-	DeviceID string `json:"device_id"`
+	FCMToken string `json:"fcm_token" binding:"required"`
+	DeviceID string `json:"device_id,omitempty"` // Obsolete, preserved for backward compatibility
 }
 
 type TestNotificationRequest struct {

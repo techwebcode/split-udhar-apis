@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"net/http"
+	"strings"
+
 	"split-udhar-apis/dto"
 	"split-udhar-apis/services"
 
@@ -23,17 +25,34 @@ func (f *FCMController) SaveToken(c *gin.Context) {
 	userMobile := c.GetString("mobile")
 	userID := c.GetUint("user_id")
 
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "Authenticated user session required",
+		})
+		return
+	}
+
 	var req dto.SaveFCMTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "Invalid request payload: " + err.Error(),
+		})
+		return
+	}
+
+	req.FCMToken = strings.TrimSpace(req.FCMToken)
+	if req.FCMToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "fcm_token is required and cannot be empty",
 		})
 		return
 	}
 
 	if err := f.Service.SaveFCMToken(userMobile, userID, req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
@@ -48,18 +67,35 @@ func (f *FCMController) SaveToken(c *gin.Context) {
 
 func (f *FCMController) DeleteToken(c *gin.Context) {
 	userMobile := c.GetString("mobile")
-	if userMobile == "" {
+	userID := c.GetUint("user_id")
+
+	if userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"message": "User mobile not found in token context",
+			"message": "Authenticated user session required",
 		})
 		return
 	}
 
 	var req dto.DeleteFCMTokenRequest
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid request payload: " + err.Error(),
+		})
+		return
+	}
 
-	if err := f.Service.DeleteFCMToken(userMobile, req); err != nil {
+	req.FCMToken = strings.TrimSpace(req.FCMToken)
+	if req.FCMToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "fcm_token is required for unregistration",
+		})
+		return
+	}
+
+	if err := f.Service.DeleteFCMToken(userID, userMobile, req.FCMToken); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -77,30 +113,55 @@ func (f *FCMController) TestNotification(c *gin.Context) {
 	userMobile := c.GetString("mobile")
 	userID := c.GetUint("user_id")
 
+	if userID == 0 && userMobile == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "Authenticated session required",
+		})
+		return
+	}
+
 	var req dto.TestNotificationRequest
 	_ = c.ShouldBindJSON(&req)
 
-	sentCount, err := f.Service.SendTestNotification(userMobile, userID, req)
+	attemptedCount, acceptedCount, err := f.Service.SendTestNotification(userMobile, userID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "Failed to send test notification: " + err.Error(),
 		})
 		return
 	}
 
-	if sentCount == 0 {
+	if attemptedCount == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"success":      false,
-			"message":      "No registered FCM device token found for your account. Please log in on the app or call POST /api/user/fcm-token first.",
-			"tokens_count": 0,
+			"success":         false,
+			"message":         "No registered active FCM device token found for your account. Please log in on the app to register your device.",
+			"tokens_count":    0,
+			"attempted_count": 0,
 		})
 		return
+	}
+
+	if acceptedCount == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success":         false,
+			"message":         "FCM did not accept notifications for the registered device tokens (tokens may be expired or invalid)",
+			"tokens_count":    0,
+			"attempted_count": attemptedCount,
+		})
+		return
+	}
+
+	message := "Test push notification dispatched successfully"
+	if acceptedCount < attemptedCount {
+		message = "Test push notification partially dispatched (some tokens failed or were unregistered)"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":      true,
-		"message":      "Test push notification dispatched successfully",
-		"tokens_count": sentCount,
+		"success":         true,
+		"message":         message,
+		"tokens_count":    acceptedCount,
+		"attempted_count": attemptedCount,
 	})
 }

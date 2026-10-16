@@ -23,6 +23,7 @@ type GroupService struct {
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
 	fcmService      *FCMService
+	dispatcher      *NotificationDispatcher
 	storage         storage.ImageStorageService
 }
 
@@ -33,6 +34,7 @@ func NewGroupService(db *gorm.DB) *GroupService {
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
 		fcmService:      NewFCMService(db),
+		dispatcher:      NewNotificationDispatcher(db, NewFCMService(db)),
 		storage:         storage.NewStorageServiceFromEnv(),
 	}
 }
@@ -322,7 +324,8 @@ func (s *GroupService) CreateGroup(creatorMobile string, req dto.CreateGroupRequ
 				"group_name": group.Name,
 			}
 
-			_ = s.fcmService.SendNotificationToUsers(recipientMobiles, title, body, data)
+			idempotencyKey := fmt.Sprintf("grp_%d_create", group.ID)
+			_, _ = s.dispatcher.EnqueueNotification(idempotencyKey, "users", recipientMobiles, title, body, data)
 		}
 	}()
 
@@ -468,7 +471,8 @@ func (s *GroupService) AddMember(groupID uint, requesterMobile string, memberReq
 			"group_name": group.Name,
 		}
 
-		_ = s.fcmService.SendNotificationToUser(memberReq.Mobile, title, body, data)
+		idempotencyKey := fmt.Sprintf("grp_%d_member_%s", groupID, utils.NormalizeMobile(memberReq.Mobile))
+		_, _ = s.dispatcher.EnqueueNotification(idempotencyKey, "user", []string{memberReq.Mobile}, title, body, data)
 	}()
 
 	return nil
@@ -615,7 +619,8 @@ func (s *GroupService) AddGroupExpense(groupID uint, userMobile string, req dto.
 				"amount":      fmt.Sprintf("%.2f", req.Amount),
 			}
 
-			_ = s.fcmService.SendNotificationToUsers(recipientMobiles, title, body, data)
+			idempotencyKey := fmt.Sprintf("grp_%d_exp_%d", groupID, expense.ID)
+			_, _ = s.dispatcher.EnqueueNotification(idempotencyKey, "users", recipientMobiles, title, body, data)
 		}
 	}()
 
@@ -754,7 +759,8 @@ func (s *GroupService) SettleGroup(groupID uint, userMobile string, req dto.Sett
 				"amount":     fmt.Sprintf("%.2f", req.Amount),
 			}
 
-			_ = s.fcmService.SendNotificationToUser(targetMobile, title, body, data)
+			idempotencyKey := fmt.Sprintf("grp_%d_settle_%s_%s_%.0f_%d", groupID, utils.NormalizeMobile(userMobile), utils.NormalizeMobile(targetMobile), req.Amount, time.Now().Unix())
+			_, _ = s.dispatcher.EnqueueNotification(idempotencyKey, "user", []string{targetMobile}, title, body, data)
 		}
 	}()
 

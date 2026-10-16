@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"split-udhar-apis/config"
+	"split-udhar-apis/migrations"
 	"split-udhar-apis/services"
 
 	"gorm.io/gorm"
@@ -39,6 +40,10 @@ func main() {
 	switch *task {
 	case "recompute-balances":
 		err = recomputeBalances(db, *apply)
+	case "migrate-user-devices":
+		err = migrateUserDevices(db, *apply)
+	case "rollback-user-devices":
+		err = migrations.RollbackUserDevicesSchema(db)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown task %q\n\n%s", *task, usage)
 		os.Exit(2)
@@ -58,6 +63,13 @@ const usage = `Available tasks:
   recompute-balances   Replay every group's expenses and settlements and
                        report any group_members.balance that has drifted from
                        the ledger. Corrects the drift when -apply is passed.
+
+  migrate-user-devices Preflight-check and safely optimize user_devices schema
+                       (fcm_token VARCHAR(255) and composite indexes).
+                       Applies migration when -apply is passed.
+
+  rollback-user-devices Revert user_devices composite indexes and restore
+                       fcm_token to VARCHAR(500).
 
 Flags:
   -apply   Write changes. Without it the task only reports.
@@ -90,6 +102,23 @@ func recomputeBalances(db *gorm.DB, apply bool) error {
 
 	if apply {
 		log.Printf("recompute-balances: corrected %d balance(s)", len(report.Drifts))
+	}
+	return nil
+}
+
+func migrateUserDevices(db *gorm.DB, apply bool) error {
+	report, err := migrations.MigrateUserDevicesSchema(db, apply)
+	if err != nil {
+		return err
+	}
+	log.Printf("migrate-user-devices: %s", report.ActionTaken)
+	log.Printf("  total devices: %d (active: %d)", report.TotalDevices, report.ActiveDevices)
+	log.Printf("  max token length: %d chars", report.MaxTokenLength)
+	if len(report.IndexesCreated) > 0 {
+		log.Printf("  created indexes: %v", report.IndexesCreated)
+	}
+	if len(report.IndexesExisting) > 0 {
+		log.Printf("  already existing indexes: %v", report.IndexesExisting)
 	}
 	return nil
 }

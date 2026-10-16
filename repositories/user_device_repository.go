@@ -90,7 +90,8 @@ func (r *UserDeviceRepository) GetTokensByUserIDs(userIDs []uint) ([]string, err
 
 // GetTokensByMobile provides recipient token resolution:
 // If an authoritative userID is available, it queries by userID.
-// Otherwise, it matches unassigned/legacy tokens matching the mobile number.
+// Otherwise, if userID is 0, it resolves strictly against 10-digit normalized mobile formats
+// to prevent ambiguous or partial matching against unintended users.
 func (r *UserDeviceRepository) GetTokensByMobile(mobile string, userID uint) ([]string, error) {
 	if userID > 0 {
 		return r.GetTokensByUserID(userID)
@@ -101,22 +102,24 @@ func (r *UserDeviceRepository) GetTokensByMobile(mobile string, userID uint) ([]
 	}
 
 	cleanMobile := utils.NormalizeMobile(mobile)
-	var tokens []string
-
-	query := r.db.Model(&models.UserDevice{}).
-		Where("deleted_at IS NULL AND user_id = 0 AND fcm_token IS NOT NULL AND fcm_token <> ''")
-
-	if cleanMobile != "" && cleanMobile != mobile {
-		query = query.Where("(mobile = ? OR mobile = ?)", mobile, cleanMobile)
-	} else {
-		query = query.Where("mobile = ?", mobile)
+	// Guard against short or ambiguous numbers (e.g. "123", "0")
+	if len(cleanMobile) < 10 {
+		return []string{}, nil
 	}
 
-	err := query.Distinct("fcm_token").Pluck("fcm_token", &tokens).Error
+	searchMobiles := []string{cleanMobile, "+91" + cleanMobile, "0" + cleanMobile}
+
+	var tokens []string
+	err := r.db.Model(&models.UserDevice{}).
+		Where("deleted_at IS NULL AND mobile IN ? AND fcm_token IS NOT NULL AND fcm_token <> ''", searchMobiles).
+		Distinct("fcm_token").
+		Pluck("fcm_token", &tokens).Error
+
 	return tokens, err
 }
 
-// GetTokensByMobiles retrieves tokens for multiple mobile numbers.
+// GetTokensByMobiles retrieves tokens for multiple mobile numbers, matching all canonical formats.
+// Silently ignores empty, invalid, or sub-10-digit numbers to prevent ambiguous matching.
 func (r *UserDeviceRepository) GetTokensByMobiles(mobiles []string) ([]string, error) {
 	if len(mobiles) == 0 {
 		return []string{}, nil
@@ -125,11 +128,17 @@ func (r *UserDeviceRepository) GetTokensByMobiles(mobiles []string) ([]string, e
 	mobileSet := make(map[string]bool)
 	for _, m := range mobiles {
 		if m != "" {
-			mobileSet[m] = true
-			if norm := utils.NormalizeMobile(m); norm != "" {
+			norm := utils.NormalizeMobile(m)
+			if len(norm) == 10 {
 				mobileSet[norm] = true
+				mobileSet["+91"+norm] = true
+				mobileSet["0"+norm] = true
 			}
 		}
+	}
+
+	if len(mobileSet) == 0 {
+		return []string{}, nil
 	}
 
 	searchMobiles := make([]string, 0, len(mobileSet))

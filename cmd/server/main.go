@@ -6,6 +6,8 @@ import (
 
 	"split-udhar-apis/config"
 	"split-udhar-apis/routes"
+	"split-udhar-apis/services"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -44,6 +46,12 @@ func main() {
 			"message": "Split Udhar API Running",
 		})
 	})
+
+	// Start background durable notification retry worker
+	fcmService := services.NewFCMService(db)
+	dispatcher := services.NewNotificationDispatcher(db, fcmService)
+	dispatcher.StartBackgroundWorker(30 * time.Second)
+	defer dispatcher.Stop()
 
 	// Register Routes
 	routes.SetupRoutes(router, db)

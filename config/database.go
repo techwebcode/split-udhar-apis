@@ -23,6 +23,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.GroupExpense{},
 		&models.GroupExpenseEditLog{},
 		&models.UserDevice{},
+		&models.NotificationOutbox{},
 	)
 }
 

@@ -19,6 +19,7 @@ type TransactionService struct {
 	transactionRepo *repositories.TransactionRepository
 	userRepo        *repositories.UserRepository
 	fcmService      *FCMService
+	dispatcher      *NotificationDispatcher
 }
 
 func NewTransactionService(db *gorm.DB) *TransactionService {
@@ -26,6 +27,7 @@ func NewTransactionService(db *gorm.DB) *TransactionService {
 		transactionRepo: repositories.NewTransactionRepository(db),
 		userRepo:        repositories.NewUserRepository(db),
 		fcmService:      NewFCMService(db),
+		dispatcher:      NewNotificationDispatcher(db, NewFCMService(db)),
 	}
 }
 
@@ -97,7 +99,8 @@ func (s *TransactionService) CreateTransaction(userMobile string, req dto.Create
 			"amount":         fmt.Sprintf("%.2f", req.Amount),
 		}
 
-		_ = s.fcmService.SendNotificationToUser(req.Mobile, title, body, data)
+		idempotencyKey := fmt.Sprintf("tx_%d_create", transaction.ID)
+		_, _ = s.dispatcher.EnqueueNotification(idempotencyKey, "user", []string{req.Mobile}, title, body, data)
 	}()
 
 	return nil

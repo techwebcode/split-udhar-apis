@@ -26,7 +26,14 @@ func TestClassifyFCMError(t *testing.T) {
 		t.Fatalf("expected Transient/true for 503, got %v/%v", cat, retryable)
 	}
 
-	// 4. Unknown non-retryable error
+	// 4. Missing credentials configuration
+	credErr := errors.New("FCM disabled: Firebase Admin SDK client not initialized (missing or invalid service account credentials)")
+	cat, retryable, code = ClassifyFCMError(credErr)
+	if cat != ErrorCategoryTerminal || retryable || code != "CREDENTIALS_MISSING" {
+		t.Fatalf("expected Terminal/false/CREDENTIALS_MISSING for missing credentials, got %v/%v/%s", cat, retryable, code)
+	}
+
+	// 5. Unknown non-retryable error
 	unknownErr := errors.New("unrecognized payload schema")
 	cat, retryable, _ = ClassifyFCMError(unknownErr)
 	if cat != ErrorCategoryTerminal || retryable {

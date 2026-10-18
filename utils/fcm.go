@@ -1,13 +1,13 @@
 package utils
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -30,69 +30,124 @@ func MaskToken(token string) string {
 	return fmt.Sprintf("%s...%s", token[:10], token[len(token)-4:])
 }
 
-// InitFCM initializes the Firebase Admin Messaging client.
+// InitFCM initializes the Firebase Admin Messaging client using HTTP v1.
 func InitFCM() *messaging.Client {
 	fcmInitOnce.Do(func() {
 		ctx := context.Background()
 		var opts []option.ClientOption
 
-		credKey := os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
-		credJSON := os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
-
-		if credJSON == "" && credKey != "" {
-			credJSON = credKey
+		// 1. Explicit file path environment variables
+		filePathCandidates := []string{
+			os.Getenv("FIREBASE_SERVICE_ACCOUNT_FILE"),
+			os.Getenv("FIREBASE_SERVICE_ACCOUNT_PATH"),
+			os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
 		}
-
-		if credJSON != "" {
-			if json.Valid([]byte(credJSON)) {
-				opts = append(opts, option.WithCredentialsJSON([]byte(credJSON)))
-				log.Println("🔥 FCM: Loaded credentials JSON from env")
-			} else if _, err := os.Stat(credJSON); err == nil {
-				opts = append(opts, option.WithCredentialsFile(credJSON))
-				log.Printf("🔥 FCM: Loaded service account file from %s", credJSON)
-			}
-		}
-
-		if len(opts) == 0 {
-			candidates := []string{
-				"firebase-service-account.json",
-				"config/firebase-service-account.json",
-				"../firebase-service-account.json",
-				"../../firebase-service-account.json",
-			}
-			for _, path := range candidates {
-				if _, err := os.Stat(path); err == nil {
-					opts = append(opts, option.WithCredentialsFile(path))
-					log.Printf("🔥 FCM: Loaded service account file from %s", path)
+		for _, fp := range filePathCandidates {
+			if fp != "" {
+				if _, err := os.Stat(fp); err == nil {
+					opts = append(opts, option.WithCredentialsFile(fp))
+					log.Printf("🔥 FCM: Loaded service account file from %s", fp)
 					break
 				}
 			}
 		}
 
-		if len(opts) > 0 {
-			app, err := firebase.NewApp(ctx, nil, opts...)
-			if err == nil {
-				client, err := app.Messaging(ctx)
-				if err == nil {
-					fcmClient = client
-					log.Println("✅ FCM: Firebase Cloud Messaging SDK initialized successfully")
-					return
+		// 2. Direct JSON, Base64, or file path in FIREBASE_SERVICE_ACCOUNT_KEY / JSON
+		if len(opts) == 0 {
+			rawCreds := os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+			if rawCreds == "" {
+				rawCreds = os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+			}
+
+			if rawCreds != "" {
+				if _, err := os.Stat(rawCreds); err == nil {
+					// File path provided in env
+					opts = append(opts, option.WithCredentialsFile(rawCreds))
+					log.Printf("🔥 FCM: Loaded service account file from path in env: %s", rawCreds)
+				} else if json.Valid([]byte(rawCreds)) {
+					// Raw JSON string
+					opts = append(opts, option.WithCredentialsJSON([]byte(rawCreds)))
+					log.Println("🔥 FCM: Loaded service account JSON directly from environment")
+				} else if decoded, err := base64.StdEncoding.DecodeString(rawCreds); err == nil && json.Valid(decoded) {
+					// Base64-encoded JSON string
+					opts = append(opts, option.WithCredentialsJSON(decoded))
+					log.Println("🔥 FCM: Loaded base64-decoded service account JSON from environment")
+				} else {
+					log.Printf("⚠️ FCM Warning: Credential in env is neither valid JSON nor existing file (len=%d). Note: FCM legacy API was shut down by Google in June 2024; legacy server keys cannot be used with FCM HTTP v1. Please provide service account JSON or file path.", len(rawCreds))
 				}
 			}
 		}
 
-		if credKey != "" {
-			log.Println("🔥 FCM: FIREBASE_SERVICE_ACCOUNT_KEY configured for FCM notifications")
-		} else {
-			log.Println("⚠️ FCM Notice: Service account / key not configured yet")
+		// 3. Fallback candidate files in common project locations
+		if len(opts) == 0 {
+			var candidatePaths []string
+			// Relative to working directory
+			candidatePaths = append(candidatePaths,
+				"firebase-service-account.json",
+				"config/firebase-service-account.json",
+				"../firebase-service-account.json",
+				"../../firebase-service-account.json",
+			)
+			// Relative to running executable directory (critical for production systemd services)
+			if execPath, err := os.Executable(); err == nil {
+				execDir := filepath.Dir(execPath)
+				candidatePaths = append(candidatePaths,
+					filepath.Join(execDir, "firebase-service-account.json"),
+					filepath.Join(execDir, "config", "firebase-service-account.json"),
+				)
+			}
+			// System locations
+			candidatePaths = append(candidatePaths,
+				"/etc/splitudhar/firebase-service-account.json",
+			)
+
+			for _, path := range candidatePaths {
+				if _, err := os.Stat(path); err == nil {
+					opts = append(opts, option.WithCredentialsFile(path))
+					log.Printf("🔥 FCM: Discovered service account file at %s", path)
+					break
+				}
+			}
 		}
+
+		// 4. Initialize Firebase App with options
+		if len(opts) > 0 {
+			app, err := firebase.NewApp(ctx, nil, opts...)
+			if err != nil {
+				log.Printf("❌ FCM Init Error: Failed to create Firebase app: %v", err)
+				fcmInitFailed = true
+				return
+			}
+			client, err := app.Messaging(ctx)
+			if err != nil {
+				log.Printf("❌ FCM Init Error: Failed to initialize Firebase messaging client: %v", err)
+				fcmInitFailed = true
+				return
+			}
+			fcmClient = client
+			log.Println("✅ FCM: Firebase Cloud Messaging SDK (HTTP v1) initialized successfully")
+			return
+		}
+
+		// 5. Try Google Application Default Credentials (e.g. GCP GCE instance metadata)
+		app, err := firebase.NewApp(ctx, nil)
+		if err == nil {
+			client, err := app.Messaging(ctx)
+			if err == nil {
+				fcmClient = client
+				log.Println("✅ FCM: Firebase Cloud Messaging SDK initialized via Google Application Default Credentials")
+				return
+			}
+		}
+
+		log.Println("⚠️ FCM Notice: No valid Firebase service account credentials found. Push notifications will be skipped.")
 		fcmInitFailed = true
 	})
 
 	return fcmClient
 }
 
-// SendFCMNotification sends a push notification to a single device token.
+// SendFCMNotification sends a push notification to a single device token using HTTP v1.
 // Returns (isInvalidToken, error).
 func SendFCMNotification(token, title, body string, data map[string]string) (bool, error) {
 	if token == "" {
@@ -101,8 +156,7 @@ func SendFCMNotification(token, title, body string, data map[string]string) (boo
 
 	client := InitFCM()
 	if client == nil {
-		_, invalidTokens, err := sendLegacyHTTPNotification([]string{token}, title, body, data)
-		return len(invalidTokens) > 0, err
+		return false, fmt.Errorf("FCM disabled: Firebase Admin SDK client not initialized (missing or invalid service account credentials)")
 	}
 
 	if data == nil {
@@ -151,7 +205,7 @@ func SendFCMNotification(token, title, body string, data map[string]string) (boo
 	return false, nil
 }
 
-// SendMulticastFCM sends push notifications to multiple device tokens.
+// SendMulticastFCM sends push notifications to multiple device tokens using HTTP v1.
 // Automatically chunks requests to respect Firebase 500-token batch limits.
 // Returns (successfulDeliveriesCount, invalidTokensList, error).
 func SendMulticastFCM(tokens []string, title, body string, data map[string]string) (int, []string, error) {
@@ -167,7 +221,7 @@ func SendMulticastFCM(tokens []string, title, body string, data map[string]strin
 
 	client := InitFCM()
 	if client == nil {
-		return sendLegacyHTTPNotification(tokens, title, body, data)
+		return 0, nil, fmt.Errorf("FCM disabled: Firebase Admin SDK client not initialized (missing or invalid service account credentials)")
 	}
 
 	if data == nil {
@@ -257,62 +311,4 @@ func DeduplicateTokens(tokens []string) []string {
 		}
 	}
 	return deduped
-}
-
-func sendLegacyHTTPNotification(tokens []string, title, body string, data map[string]string) (int, []string, error) {
-	serverKey := os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
-	if serverKey == "" {
-		serverKey = os.Getenv("FCM_SERVER_KEY")
-	}
-	if serverKey == "" || len(tokens) == 0 {
-		log.Println("⚠️ FCM Notice: Service account / FCM key not configured, skipping notification")
-		return 0, nil, nil
-	}
-
-	url := "https://fcm.googleapis.com/fcm/send"
-
-	if data == nil {
-		data = make(map[string]string)
-	}
-	data["click_action"] = "FLUTTER_NOTIFICATION_CLICK"
-
-	payload := map[string]interface{}{
-		"registration_ids": tokens,
-		"notification": map[string]interface{}{
-			"title":      title,
-			"body":       body,
-			"sound":      "default",
-			"channel_id": "split_udhar_notifications",
-		},
-		"data":     data,
-		"priority": "high",
-	}
-
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return 0, nil, err
-	}
-
-	req.Header.Set("Authorization", "key="+serverKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("❌ FCM Legacy Dispatch Error: %v", err)
-		return 0, nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return len(tokens), nil, nil
-	}
-	return 0, nil, fmt.Errorf("FCM legacy endpoint responded with status %s", resp.Status)
 }

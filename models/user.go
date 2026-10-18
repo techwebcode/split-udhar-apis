@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type User struct {
 	BaseModel
@@ -14,9 +18,50 @@ type User struct {
 	ProfileImageKey string     `gorm:"size:255" json:"profile_image_key,omitempty"`
 	ProfileImageURL string     `gorm:"-" json:"profile_image_url,omitempty"`
 
+	// Preferred display currency (ISO 4217, 3 characters). Defaults to INR.
+	PreferredCurrency string `gorm:"size:3;default:'INR';not null" json:"preferred_currency"`
+
 	// A 4-digit MPIN only has 10,000 combinations, so failed attempts are
 	// counted and the account is locked out temporarily to make online
 	// guessing impractical.
 	MPINFailedAttempts int        `gorm:"default:0" json:"-"`
 	MPINLockedUntil    *time.Time `json:"-"`
 }
+
+const (
+	CurrencyINR = "INR"
+	CurrencyUSD = "USD"
+	CurrencyEUR = "EUR"
+	CurrencyGBP = "GBP"
+	CurrencyAED = "AED"
+	CurrencyCAD = "CAD"
+	CurrencyAUD = "AUD"
+	CurrencySGD = "SGD"
+	CurrencyJPY = "JPY"
+	CurrencyCHF = "CHF"
+)
+
+var SupportedCurrencies = map[string]bool{
+	CurrencyINR: true,
+	CurrencyUSD: true,
+	CurrencyEUR: true,
+	CurrencyGBP: true,
+	CurrencyAED: true,
+	CurrencyCAD: true,
+	CurrencyAUD: true,
+	CurrencySGD: true,
+	CurrencyJPY: true,
+	CurrencyCHF: true,
+}
+
+func IsValidCurrency(code string) bool {
+	return SupportedCurrencies[code]
+}
+
+func (u *User) BeforeCreate(tx *gorm.DB) error {
+	if u.PreferredCurrency == "" {
+		u.PreferredCurrency = CurrencyINR
+	}
+	return nil
+}
+

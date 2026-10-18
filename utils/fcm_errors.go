@@ -54,6 +54,12 @@ func ClassifyFCMError(err error) (category ErrorCategory, isRetryable bool, code
 
 	// 4. String heuristics for standard HTTP/Network timeouts
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "credentials") ||
+		strings.Contains(msg, "fcm disabled") ||
+		strings.Contains(msg, "not initialized") {
+		return ErrorCategoryTerminal, false, "CREDENTIALS_MISSING"
+	}
+
 	if strings.Contains(msg, "timeout") ||
 		strings.Contains(msg, "deadline exceeded") ||
 		strings.Contains(msg, "connection reset") ||

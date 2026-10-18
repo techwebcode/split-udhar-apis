@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"context"
 	"errors"
 	"fmt"
@@ -64,6 +65,14 @@ func (s *UserService) UpdateProfile(userID uint, req dto.UpdateProfileRequest) e
 			return errors.New("mobile number is already registered with another account")
 		}
 		user.Mobile = req.Mobile
+	}
+
+	if req.PreferredCurrency != "" {
+		currency := strings.ToUpper(strings.TrimSpace(req.PreferredCurrency))
+		if !models.IsValidCurrency(currency) {
+			return errors.New("unsupported currency code")
+		}
+		user.PreferredCurrency = currency
 	}
 
 	if err := s.UserRepo.Update(user); err != nil {

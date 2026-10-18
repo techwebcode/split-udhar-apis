@@ -12,7 +12,7 @@ import (
 )
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&models.User{},
 		&models.PendingUser{},
 		&models.OTPVerification{},
@@ -24,7 +24,16 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.GroupExpenseEditLog{},
 		&models.UserDevice{},
 		&models.NotificationOutbox{},
-	)
+	); err != nil {
+		return err
+	}
+
+	// Ensure existing users default to INR if preferred_currency is blank
+	_ = db.Model(&models.User{}).
+		Where("preferred_currency = '' OR preferred_currency IS NULL").
+		Update("preferred_currency", models.CurrencyINR).Error
+
+	return nil
 }
 
 var DB *gorm.DB

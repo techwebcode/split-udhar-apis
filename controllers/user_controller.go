@@ -178,3 +178,86 @@ func (u *UserController) RemoveProfileImage(c *gin.Context) {
 		"message": "Profile picture removed successfully",
 	})
 }
+
+func (u *UserController) GetPaymentSettings(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	res, err := u.Service.GetPaymentSettings(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    res,
+	})
+}
+
+func (u *UserController) UpdatePaymentSettings(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req dto.UpdatePaymentSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	res, err := u.Service.UpdatePaymentSettings(userID, req.UpiID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Payment settings updated successfully",
+		"data":    res,
+	})
+}
+
+func (u *UserController) DeletePaymentSettings(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	if err := u.Service.DeletePaymentSettings(userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "UPI ID removed successfully",
+	})
+}
+
+func (u *UserController) GetRecipientUpi(c *gin.Context) {
+	mobile := c.Param("mobile")
+	if mobile == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Mobile parameter is required",
+		})
+		return
+	}
+
+	res, err := u.Service.GetRecipientUpiByMobile(mobile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    res,
+	})
+}

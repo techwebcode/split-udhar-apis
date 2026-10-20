@@ -11,6 +11,7 @@ import (
 func TransactionRoutes(router *gin.RouterGroup, db *gorm.DB) {
 
 	controller := controllers.NewTransactionController(db)
+	payReportController := controllers.NewPaymentReportController(db)
 
 	transactions := router.Group("/transactions")
 
@@ -24,6 +25,13 @@ func TransactionRoutes(router *gin.RouterGroup, db *gorm.DB) {
 		transactions.GET("/dashboard", controller.Dashboard)
 
 		transactions.GET("/logs/:id", controller.GetEditLogs)
+
+		// 1-to-1 Payment Reporting and Confirmation endpoints
+		// Registered before :mobile wildcard so path resolution doesn't conflict
+		transactions.POST("/payment-reports", payReportController.Create)
+		transactions.POST("/payment-reports/:id/confirm", payReportController.Confirm)
+		transactions.POST("/payment-reports/:id/reject", payReportController.Reject)
+		transactions.GET("/payment-reports/:mobile", payReportController.GetBetween)
 
 		transactions.GET("/:mobile", controller.GetHistory)
 

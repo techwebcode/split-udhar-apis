@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"split-udhar-apis/dto"
 	"split-udhar-apis/models"
@@ -176,4 +177,61 @@ func (s *UserService) DeleteAccount(userID uint) error {
 		_ = s.Storage.Delete(context.Background(), user.ProfileImageKey)
 	}
 	return s.UserRepo.DeleteAccount(userID)
+}
+
+var upiRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$`)
+
+func (s *UserService) GetPaymentSettings(userID uint) (*dto.PaymentSettingsResponse, error) {
+	user, err := s.UserRepo.GetByID(userID)
+	if err != nil || user == nil {
+		return nil, errors.New("user not found")
+	}
+	return &dto.PaymentSettingsResponse{
+		UpiID: user.UpiID,
+		IsSet: user.UpiID != "",
+	}, nil
+}
+
+func (s *UserService) UpdatePaymentSettings(userID uint, upiID string) (*dto.PaymentSettingsResponse, error) {
+	cleanUpi := strings.TrimSpace(upiID)
+	if cleanUpi != "" {
+		if !upiRegex.MatchString(cleanUpi) {
+			return nil, errors.New("invalid UPI ID format: must be in format username@handle (e.g., name@bank)")
+		}
+	}
+
+	if err := s.UserRepo.UpdateUpiID(userID, cleanUpi); err != nil {
+		return nil, err
+	}
+
+	return &dto.PaymentSettingsResponse{
+		UpiID: cleanUpi,
+		IsSet: cleanUpi != "",
+	}, nil
+}
+
+func (s *UserService) DeletePaymentSettings(userID uint) error {
+	return s.UserRepo.UpdateUpiID(userID, "")
+}
+
+func (s *UserService) GetRecipientUpiByMobile(mobile string) (*dto.RecipientUpiResponse, error) {
+	cleanMobile := utils.NormalizeMobile(mobile)
+	if cleanMobile == "" {
+		cleanMobile = mobile
+	}
+
+	user, err := s.UserRepo.GetByMobile(cleanMobile)
+	if err != nil || user == nil {
+		return &dto.RecipientUpiResponse{
+			Mobile: mobile,
+			HasUpi: false,
+		}, nil
+	}
+
+	return &dto.RecipientUpiResponse{
+		Mobile: mobile,
+		Name:   user.FullName,
+		UpiID:  user.UpiID,
+		HasUpi: user.UpiID != "",
+	}, nil
 }

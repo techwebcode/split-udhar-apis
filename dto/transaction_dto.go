@@ -16,9 +16,11 @@ type UpdateTransactionRequest struct {
 }
 
 type TransactionHistoryResponse struct {
-	Mobile        string      `json:"mobile"`
-	TotalGiven    float64     `json:"total_given"`
-	TotalReceived float64     `json:"total_received"`
-	Balance       float64     `json:"balance"`
-	Transactions  interface{} `json:"transactions"`
+	Mobile         string      `json:"mobile"`
+	TotalGiven     float64     `json:"total_given"`
+	TotalReceived  float64     `json:"total_received"`
+	Balance        float64     `json:"balance"`
+	Transactions   interface{} `json:"transactions"`
+	PaymentReports interface{} `json:"payment_reports,omitempty"`
+	RecipientUpiID string      `json:"recipient_upi_id,omitempty"`
 }

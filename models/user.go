@@ -21,6 +21,9 @@ type User struct {
 	// Preferred display currency (ISO 4217, 3 characters). Defaults to INR.
 	PreferredCurrency string `gorm:"size:3;default:'INR';not null" json:"preferred_currency"`
 
+	// Saved recipient UPI ID (user-provided, e.g. name@okhdfcbank, name@ybl)
+	UpiID string `gorm:"size:100;index" json:"upi_id,omitempty"`
+
 	// A 4-digit MPIN only has 10,000 combinations, so failed attempts are
 	// counted and the account is locked out temporarily to make online
 	// guessing impractical.

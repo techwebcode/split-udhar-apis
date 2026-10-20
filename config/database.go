@@ -24,6 +24,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.GroupExpenseEditLog{},
 		&models.UserDevice{},
 		&models.NotificationOutbox{},
+		&models.PaymentReport{},
 	); err != nil {
 		return err
 	}
@@ -60,8 +61,6 @@ func ConnectDB() (*gorm.DB, error) {
 	}
 
 	DB = db
-
-	log.Println("✅ Database connected successfully")
-
+	log.Println("Database connection established")
 	return db, nil
 }

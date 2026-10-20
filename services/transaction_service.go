@@ -16,18 +16,20 @@ import (
 )
 
 type TransactionService struct {
-	transactionRepo *repositories.TransactionRepository
-	userRepo        *repositories.UserRepository
-	fcmService      *FCMService
-	dispatcher      *NotificationDispatcher
+	transactionRepo   *repositories.TransactionRepository
+	paymentReportRepo *repositories.PaymentReportRepository
+	userRepo          *repositories.UserRepository
+	fcmService        *FCMService
+	dispatcher        *NotificationDispatcher
 }
 
 func NewTransactionService(db *gorm.DB) *TransactionService {
 	return &TransactionService{
-		transactionRepo: repositories.NewTransactionRepository(db),
-		userRepo:        repositories.NewUserRepository(db),
-		fcmService:      NewFCMService(db),
-		dispatcher:      NewNotificationDispatcher(db, NewFCMService(db)),
+		transactionRepo:   repositories.NewTransactionRepository(db),
+		paymentReportRepo: repositories.NewPaymentReportRepository(db),
+		userRepo:          repositories.NewUserRepository(db),
+		fcmService:        NewFCMService(db),
+		dispatcher:        NewNotificationDispatcher(db, NewFCMService(db)),
 	}
 }
 
@@ -435,6 +437,17 @@ func (s *TransactionService) GetTransactionHistory(
 
 	response.Balance =
 		response.TotalGiven - response.TotalReceived
+
+	if s.paymentReportRepo != nil {
+		reports, _ := s.paymentReportRepo.GetReportsBetween(userMobile, contactMobile)
+		response.PaymentReports = reports
+	}
+
+	if s.userRepo != nil {
+		if contactUser, _ := s.userRepo.GetByMobile(contactMobile); contactUser != nil {
+			response.RecipientUpiID = contactUser.UpiID
+		}
+	}
 
 	return response, nil
 }

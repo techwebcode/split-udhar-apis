@@ -116,3 +116,7 @@ func (r *UserRepository) DeleteAccount(userID uint) error {
 func (r *UserRepository) UpdateProfileImageKey(userID uint, key string) error {
 	return r.DB.Model(&models.User{}).Where("id = ?", userID).Update("profile_image_key", key).Error
 }
+
+func (r *UserRepository) UpdateUpiID(userID uint, upiID string) error {
+	return r.DB.Model(&models.User{}).Where("id = ?", userID).Update("upi_id", upiID).Error
+}

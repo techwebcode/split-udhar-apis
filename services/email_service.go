@@ -24,16 +24,30 @@ func (s *EmailService) SendForgotPasscodeOTP(email, otp string) error {
 }
 
 func (s *EmailService) sendMailWithTemplate(email, otp, subjectTitle, templateFile string) error {
-	from := os.Getenv("SMTP_EMAIL")
+	// 1. SMTP Auth credentials
+	smtpUser := os.Getenv("SMTP_USER")
+	if smtpUser == "" {
+		smtpUser = os.Getenv("SMTP_EMAIL") // Fallback if using old key name
+	}
 	password := os.Getenv("SMTP_PASSWORD")
 	host := os.Getenv("SMTP_HOST")
 	port := os.Getenv("SMTP_PORT")
 
 	if host == "" {
-		host = "smtp.gmail.com"
+		host = "smtp-relay.brevo.com"
 	}
 	if port == "" {
 		port = "587"
+	}
+
+	// 2. Verified Sender details (from Brevo verified senders)
+	fromEmail := os.Getenv("FROM_EMAIL")
+	if fromEmail == "" {
+		fromEmail = "auth-splitudhar@techwebcode.in"
+	}
+	fromName := os.Getenv("FROM_NAME")
+	if fromName == "" {
+		fromName = "SplitUdhar"
 	}
 
 	htmlBody, err := utils.ParseOTPTemplate(templateFile, map[string]string{"OTP": otp})
@@ -45,21 +59,24 @@ func (s *EmailService) sendMailWithTemplate(email, otp, subjectTitle, templateFi
 	htmlBody = strings.ReplaceAll(htmlBody, "{{OTP}}", otp)
 	htmlBody = strings.ReplaceAll(htmlBody, "{{.OTP}}", otp)
 
+	// 3. Proper RFC Headers
 	subjectHeader := fmt.Sprintf("Subject: %s\r\n", subjectTitle)
-	fromHeader := fmt.Sprintf("From: %s\r\n", from)
+	fromHeader := fmt.Sprintf("From: %s <%s>\r\n", fromName, fromEmail)
 	toHeader := fmt.Sprintf("To: %s\r\n", email)
 	mimeHeader := "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n"
 
 	msg := []byte(fromHeader + toHeader + subjectHeader + mimeHeader + htmlBody)
 
-	auth := smtp.PlainAuth("", from, password, host)
+	// 4. Authenticate using SMTP credentials
+	auth := smtp.PlainAuth("", smtpUser, password, host)
 
-	log.Printf("[EMAIL SERVICE] Dispatching email [%s] to %s via %s:%s", subjectTitle, email, host, port)
+	log.Printf("[EMAIL SERVICE] Dispatching email [%s] from %s to %s via %s:%s", subjectTitle, fromEmail, email, host, port)
 
+	// 5. Send with envelope sender set to fromEmail
 	return smtp.SendMail(
 		host+":"+port,
 		auth,
-		from,
+		fromEmail, // Must be your verified domain email!
 		[]string{email},
 		msg,
 	)
